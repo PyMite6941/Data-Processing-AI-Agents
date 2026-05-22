@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -8,15 +8,50 @@ import {
 import './App.css'
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
-
 const CHART_COLORS = ['#6366f1', '#34d399', '#f472b6', '#fbbf24', '#60a5fa', '#a78bfa', '#fb923c']
+const HISTORY_KEY = 'dataflow_history'
+const MAX_HISTORY = 5
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+const PIPELINE_NODES = [
+  { id: 'context',   label: 'Context',    match: 'analysis directive specialist', icon: '◈', color: '#6366f1' },
+  { id: 'prompt',    label: 'Prompt Eng', match: 'data analysis prompt engineer', icon: '✦', color: '#8b5cf6' },
+  { id: 'analyst',   label: 'Analyst',    match: 'senior data analyst',           icon: '⬡', color: '#34d399' },
+  { id: 'formatter', label: 'Formatter',  match: 'structured output specialist',  icon: '◉', color: '#f472b6' },
+]
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function detectAgentIndex(line) {
+  const l = line.toLowerCase()
+  for (let i = 0; i < PIPELINE_NODES.length; i++) {
+    if (l.includes(PIPELINE_NODES[i].match)) return i
+  }
+  return -1
+}
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { return [] }
+}
+
+function saveHistory(entries) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(entries)) } catch {}
+}
+
+function timeAgo(ts) {
+  const diff = Date.now() - new Date(ts).getTime()
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
 
 function getLogClass(line) {
   const l = line.toLowerCase()
   if (l.startsWith('[error]') || l.includes('traceback') || l.includes('exception')) return 'log-error'
   if (l.includes('warning') || l.includes('warn')) return 'log-warn'
+  if (detectAgentIndex(line) !== -1 && (l.includes('agent:') || l.includes('# agent') || l.includes('working agent'))) return 'log-agent-header'
   if (l.includes('agent:') || l.includes('task:') || l.includes('> entering') || l.includes('crew')) return 'log-agent'
   if (l.includes('final answer') || l.includes('completed') || l.includes('finished')) return 'log-success'
   if (l.includes('thought:') || l.includes('action:') || l.includes('observation:')) return 'log-step'
@@ -45,11 +80,84 @@ function triggerDownload(filename, content) {
   URL.revokeObjectURL(url)
 }
 
+// ── Typewriter hook ───────────────────────────────────────────────────────────
+
+function useTypewriter(text, speed = 10) {
+  const [displayed, setDisplayed] = useState('')
+  const [done, setDone] = useState(false)
+  const prevRef = useRef('')
+
+  useEffect(() => {
+    if (!text) { setDisplayed(''); setDone(false); return }
+    if (text === prevRef.current) return
+    prevRef.current = text
+    setDisplayed('')
+    setDone(false)
+    let i = 0
+    const id = setInterval(() => {
+      i++
+      setDisplayed(text.slice(0, i))
+      if (i >= text.length) { setDone(true); clearInterval(id) }
+    }, speed)
+    return () => clearInterval(id)
+  }, [text, speed])
+
+  return { displayed, done }
+}
+
+// ── Pipeline diagram ──────────────────────────────────────────────────────────
+
+function PipelineDiagram({ logs, status }) {
+  const seen = useMemo(() => {
+    const s = new Set()
+    for (const line of logs) {
+      const idx = detectAgentIndex(line)
+      if (idx !== -1) s.add(idx)
+    }
+    return s
+  }, [logs])
+
+  const activeIdx = useMemo(() => {
+    if (status !== 'running') return -1
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const idx = detectAgentIndex(logs[i])
+      if (idx !== -1) return idx
+    }
+    return status === 'running' ? 0 : -1
+  }, [logs, status])
+
+  const items = []
+  PIPELINE_NODES.forEach((node, i) => {
+    const isActive = activeIdx === i
+    const isDone = seen.has(i) && (status === 'done' || (activeIdx !== -1 && activeIdx > i))
+    const isLit = isActive || isDone
+    items.push(
+      <div
+        key={node.id}
+        className={`pipeline-node${isActive ? ' pipeline-node--active' : ''}${isDone ? ' pipeline-node--done' : ''}${!isLit ? ' pipeline-node--idle' : ''}`}
+        style={{ '--nc': node.color }}
+      >
+        <span className="pipeline-node-icon">{isDone ? '✓' : node.icon}</span>
+        <span className="pipeline-node-label">{node.label}</span>
+      </div>
+    )
+    if (i < PIPELINE_NODES.length - 1) {
+      items.push(
+        <div key={`conn-${i}`} className={`pipeline-conn${isLit ? ' pipeline-conn--lit' : ''}`}>
+          <div className="pipeline-conn-line" />
+          <div className="pipeline-conn-arrow">›</div>
+        </div>
+      )
+    }
+  })
+
+  return <div className="pipeline">{items}</div>
+}
+
 // ── Download popup ────────────────────────────────────────────────────────────
 
 function DownloadPopup({ parsed, onClose }) {
   const options = []
-
   if (parsed.type === 'structured') {
     const d = parsed.data
     const reportMd = [
@@ -58,7 +166,6 @@ function DownloadPopup({ parsed, onClose }) {
       `\n## Findings\n${d.findings.map(f => `- ${f}`).join('\n')}`,
       `\n## Recommendations\n${d.recommendations.map(r => `- ${r}`).join('\n')}`,
     ].join('\n')
-
     options.push({ icon: '{}', label: 'Full JSON', ext: 'json', content: JSON.stringify(d, null, 2) })
     options.push({ icon: '📝', label: 'Report (Markdown)', ext: 'md', content: reportMd })
     if (d.data_points?.length) {
@@ -100,7 +207,6 @@ function DownloadPopup({ parsed, onClose }) {
 function ChartView({ data }) {
   const points = data.data_points ?? []
   const chartData = points.map(p => ({ name: p.label, value: p.value, category: p.category }))
-
   const tooltipStyle = { background: '#13141a', border: '1px solid #1e2030', borderRadius: 8, fontSize: 12 }
 
   if (data.chart_type === 'pie') {
@@ -131,7 +237,6 @@ function ChartView({ data }) {
     )
   }
 
-  // Default: bar
   return (
     <ResponsiveContainer width="100%" height={300}>
       <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 30, left: 0 }}>
@@ -150,38 +255,39 @@ function ChartView({ data }) {
 // ── Result views ──────────────────────────────────────────────────────────────
 
 function StructuredReport({ data }) {
+  const { displayed: sumDisplayed, done: sumDone } = useTypewriter(data.summary, 10)
+
   return (
     <div className="structured-report">
       <div className="report-summary">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.summary}</ReactMarkdown>
+        {sumDisplayed}
+        {!sumDone && <span className="typewriter-cursor" />}
       </div>
-      {data.findings?.length > 0 && (
-        <div className="report-section">
-          <h3 className="report-section-title">Findings</h3>
-          <ul className="report-list">
-            {data.findings.map((f, i) => <li key={i}><ReactMarkdown remarkPlugins={[remarkGfm]}>{f}</ReactMarkdown></li>)}
-          </ul>
-        </div>
-      )}
-      {data.recommendations?.length > 0 && (
-        <div className="report-section">
-          <h3 className="report-section-title">Recommendations</h3>
-          <ul className="report-list report-list--rec">
-            {data.recommendations.map((r, i) => <li key={i}><ReactMarkdown remarkPlugins={[remarkGfm]}>{r}</ReactMarkdown></li>)}
-          </ul>
-        </div>
-      )}
+      <div className={`report-sections${sumDone ? ' report-sections--visible' : ''}`}>
+        {data.findings?.length > 0 && (
+          <div className="report-section">
+            <h3 className="report-section-title">Findings</h3>
+            <ul className="report-list">
+              {data.findings.map((f, i) => <li key={i}><ReactMarkdown remarkPlugins={[remarkGfm]}>{f}</ReactMarkdown></li>)}
+            </ul>
+          </div>
+        )}
+        {data.recommendations?.length > 0 && (
+          <div className="report-section">
+            <h3 className="report-section-title">Recommendations</h3>
+            <ul className="report-list report-list--rec">
+              {data.recommendations.map((r, i) => <li key={i}><ReactMarkdown remarkPlugins={[remarkGfm]}>{r}</ReactMarkdown></li>)}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
 function ResultView({ parsed }) {
-  if (parsed.type === 'structured') {
-    return <StructuredReport data={parsed.data} />
-  }
-  if (parsed.type === 'json') {
-    return <pre className="result-code result-json">{JSON.stringify(parsed.data, null, 2)}</pre>
-  }
+  if (parsed.type === 'structured') return <StructuredReport data={parsed.data} />
+  if (parsed.type === 'json') return <pre className="result-code result-json">{JSON.stringify(parsed.data, null, 2)}</pre>
   if (parsed.type === 'csv') {
     const lines = parsed.data.trim().split('\n').filter(l => l.trim())
     const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
@@ -202,6 +308,40 @@ function ResultView({ parsed }) {
   )
 }
 
+// ── History drawer ────────────────────────────────────────────────────────────
+
+const TYPE_COLORS = { chart: '#a78bfa', report: '#34d399', json: '#60a5fa', csv: '#fbbf24', text: '#94a3b8' }
+
+function HistoryDrawer({ history, onSelect, onClose }) {
+  return (
+    <div className="popup-overlay" onClick={onClose}>
+      <div className="history-drawer" onClick={e => e.stopPropagation()}>
+        <div className="popup-header">
+          <span>Session History</span>
+          <button className="popup-close" onClick={onClose}>×</button>
+        </div>
+        <div className="history-list">
+          {history.length === 0 ? (
+            <div className="history-empty">No saved sessions yet. Complete an analysis to save it.</div>
+          ) : history.map(entry => {
+            const c = TYPE_COLORS[entry.resultType] || '#94a3b8'
+            return (
+              <button key={entry.id} className="history-item" onClick={() => onSelect(entry)}>
+                <div className="history-item-top">
+                  <span className="history-item-badge" style={{ color: c, borderColor: c + '44', background: c + '11' }}>{(entry.resultType || 'unknown').toUpperCase()}</span>
+                  <span className="history-item-time">{timeAgo(entry.timestamp)}</span>
+                </div>
+                <p className="history-item-context">{entry.context.slice(0, 90)}{entry.context.length > 90 ? '…' : ''}</p>
+                <div className="history-item-meta">{entry.logCount} log lines{entry.fileName ? ` · ${entry.fileName}` : ''}</div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -213,6 +353,8 @@ export default function App() {
   const [showLog, setShowLog] = useState(true)
   const [activeTab, setActiveTab] = useState('logs')
   const [showDownload, setShowDownload] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [history, setHistory] = useState(() => loadHistory())
   const logEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const abortRef = useRef(null)
@@ -224,6 +366,24 @@ export default function App() {
   useEffect(() => {
     if (result) setActiveTab('result')
   }, [result])
+
+  // Save completed run to history
+  useEffect(() => {
+    if (status !== 'done' || !result) return
+    const p = parseResult(result)
+    const entry = {
+      id: Date.now(),
+      timestamp: new Date().toISOString(),
+      context,
+      fileName: file?.name ?? null,
+      result,
+      logCount: logs.length,
+      resultType: p.type === 'structured' ? p.data.output_type : p.type,
+    }
+    const updated = [entry, ...history].slice(0, MAX_HISTORY)
+    setHistory(updated)
+    saveHistory(updated)
+  }, [status]) // eslint-disable-line
 
   const parsed = result ? parseResult(result) : null
   const hasChart = parsed?.type === 'structured' && parsed.data?.output_type === 'chart' && parsed.data?.data_points?.length > 0
@@ -269,6 +429,16 @@ export default function App() {
 
   function handleReset() { setLogs([]); setResult(null); setStatus('idle'); setActiveTab('logs'); setFile(null); setContext('') }
 
+  function handleHistorySelect(entry) {
+    setContext(entry.context)
+    setResult(entry.result)
+    setLogs([])
+    setStatus('done')
+    setActiveTab('result')
+    setFile(null)
+    setShowHistory(false)
+  }
+
   return (
     <div className="app">
       <header className="topbar">
@@ -281,6 +451,10 @@ export default function App() {
         </div>
         <div className="topbar-right">
           <span className="topbar-tag">AI Agent Pipeline</span>
+          <button className="toggle-log-btn" onClick={() => setShowHistory(true)}>
+            History
+            {history.length > 0 && <span className="toggle-log-count">{history.length}</span>}
+          </button>
           <button className={`toggle-log-btn${showLog ? ' toggle-log-btn--active' : ''}`} onClick={() => setShowLog(v => !v)}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.3"/><line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" strokeWidth="1.3"/></svg>
             {showLog ? 'Hide Output' : 'Show Output'}
@@ -290,7 +464,6 @@ export default function App() {
       </header>
 
       <main className={`workspace${showLog ? '' : ' workspace--log-hidden'}`}>
-        {/* ── Left panel ── */}
         <section className="input-panel">
           <h1 className="panel-title">What do you want to analyze?</h1>
           <p className="panel-sub">Describe your dataset and the question you want answered. The agent pipeline will interpret your request, clean the data, and extract insights.</p>
@@ -323,8 +496,9 @@ export default function App() {
           </div>
         </section>
 
-        {/* ── Right panel ── */}
         <section className="log-panel">
+          <PipelineDiagram logs={logs} status={status} />
+
           <div className="tab-bar">
             <div className="tab-bar-left">
               <div className="log-dots">
@@ -350,23 +524,36 @@ export default function App() {
             )}
           </div>
 
-          {/* Logs tab */}
           {activeTab === 'logs' && <>
             <div className="log-terminal" role="log" aria-live="polite">
               {logs.length === 0 && status === 'idle' && <div className="log-empty"><span className="log-empty-icon">⬡</span><span>Agent output will stream here in real-time.</span></div>}
               {logs.length === 0 && status === 'running' && <div className="log-empty log-empty--active"><span>Initializing agent pipeline</span></div>}
-              {logs.map((line, i) => (
-                <div key={i} className={`log-line ${getLogClass(line)}`}>
-                  <span className="log-gutter">{String(i + 1).padStart(3, ' ')}</span>
-                  <span className="log-text">{line}</span>
-                </div>
-              ))}
+              {logs.map((line, i) => {
+                const cls = getLogClass(line)
+                if (cls === 'log-agent-header') {
+                  const agentIdx = detectAgentIndex(line)
+                  if (agentIdx !== -1) {
+                    const node = PIPELINE_NODES[agentIdx]
+                    return (
+                      <div key={i} className="log-step-card" style={{ '--nc': node.color }}>
+                        <span className="log-step-card-icon">{node.icon}</span>
+                        <span className="log-step-card-name">{node.label}</span>
+                      </div>
+                    )
+                  }
+                }
+                return (
+                  <div key={i} className={`log-line ${cls}`}>
+                    <span className="log-gutter">{String(i + 1).padStart(3, ' ')}</span>
+                    <span className="log-text">{line}</span>
+                  </div>
+                )
+              })}
               <div ref={logEndRef} />
             </div>
             {logs.length > 0 && <div className="log-footer"><span>{logs.length} lines</span><button className="log-copy" onClick={() => navigator.clipboard.writeText(logs.join('\n'))}>Copy all</button></div>}
           </>}
 
-          {/* Result tab */}
           {activeTab === 'result' && (
             <div className="result-panel">
               {!parsed ? (
@@ -385,7 +572,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Artifacts tab */}
           {activeTab === 'artifacts' && hasChart && (
             <div className="result-panel">
               <div className="result-type-bar">
@@ -415,6 +601,7 @@ export default function App() {
       </main>
 
       {showDownload && parsed && <DownloadPopup parsed={parsed} onClose={() => setShowDownload(false)} />}
+      {showHistory && <HistoryDrawer history={history} onSelect={handleHistorySelect} onClose={() => setShowHistory(false)} />}
     </div>
   )
 }

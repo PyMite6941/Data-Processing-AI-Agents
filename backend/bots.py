@@ -4,15 +4,72 @@ import os
 from typing import Optional, Literal
 from pydantic import BaseModel
 
+import re as _re
+import json as _json
+
+
+def _extract_json(text: str) -> str:
+    """
+    Robustly extract a JSON object from LLM output.
+
+    LLMs often wrap output in markdown fences (```json...```) despite instructions.
+    This strips fences first, then uses brace-counting to find the first complete
+    JSON object — avoiding greedy regex that matches across multiple objects.
+    """
+    # Strip markdown fences
+    text = _re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=_re.MULTILINE)
+    text = _re.sub(r"\s*```$", "", text.strip(), flags=_re.MULTILINE)
+    text = text.strip()
+
+    # Try parsing the cleaned text directly
+    try:
+        _json.loads(text)
+        return text
+    except _json.JSONDecodeError:
+        pass
+
+    # Walk characters counting braces to find the first balanced JSON object
+    start = text.find("{")
+    if start != -1:
+        depth = 0
+        in_string = False
+        escape_next = False
+        for i, ch in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\" and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : i + 1]
+                    try:
+                        _json.loads(candidate)
+                        return candidate
+                    except _json.JSONDecodeError:
+                        break
+
+    return text
+
+
+# LiteLLM (used internally by CrewAI) falls back to OPENAI_API_KEY for some
+# internal calls (token counting, fallback routing). Mirror the OpenRouter key
+# so those paths never fail trying to call OpenAI.
+_OR_KEY = os.getenv("OPENROUTER_API_KEY", "")
+if _OR_KEY:
+    os.environ.setdefault("OPENAI_API_KEY", _OR_KEY)
+
 
 # ── Output schemas ────────────────────────────────────────────────────────────
-
-class Report(BaseModel):
-    summary: str
-    key_findings: list[str]
-    anomalies: list[str]
-    recommendations: list[str]
-
 
 class DataPoint(BaseModel):
     label: str
@@ -69,19 +126,21 @@ class FormattedOutput(BaseModel):
 class Bots:
     def __init__(self, context: str):
         self.context = context
+        # Hermes 3 405B — fine-tuned for structured/JSON output, ideal for analyst + formatter
         self._smart_config = dict(
-            model="openrouter/deepseek/deepseek-r1:free",
+            model="openrouter/nousresearch/hermes-3-llama-3.1-405b:free",
             api_key=os.getenv("OPENROUTER_API_KEY"),
             max_tokens=4096,
-            max_retries=2,
-            timeout=30,
+            max_retries=1,
+            timeout=120,
         )
+        # Gemma 4 26B — Google-hosted, fast for directive/prompt tasks
         self._fast_config = dict(
-            model="openrouter/groq/groq-1:free",
+            model="openrouter/google/gemma-4-26b-a4b-it:free",
             api_key=os.getenv("OPENROUTER_API_KEY"),
-            max_tokens=4096,
+            max_tokens=2048,
             max_retries=2,
-            timeout=30,
+            timeout=120,
         )
         self.file_read = FileReadTool()
         self.csv_search = CSVSearchTool()
@@ -117,7 +176,7 @@ class Bots:
             memory=False,
             llm=self._fast_llm(0.2),
             allow_delegation=False,
-            cache=True,
+            cache=False,
         )
 
         self.prompt_engineer = Agent(
@@ -140,22 +199,24 @@ class Bots:
             memory=False,
             llm=self._fast_llm(0.4),
             allow_delegation=False,
-            cache=True,
+            cache=False,
         )
 
         self.data_analyst = Agent(
             role="Senior Data Analyst",
             goal=(
-                "Follow the analysis prompt exactly. Use the correct tool for the file type "
-                "provided, then extract only the findings that directly answer the prompt. "
-                "Never speculate beyond what the data shows."
+                "Follow the analysis prompt exactly. If a file path is provided, use the correct "
+                "tool for that file type and extract findings that directly answer the prompt. "
+                "If no file is provided, reason from the context and prompt alone. "
+                "Never speculate beyond what the data or context shows."
             ),
             backstory=(
                 "You are a rigorous data analyst with experience across many domains and file formats. "
                 "You always select the right tool for the file type: CSVSearchTool for .csv, "
                 "JSONSearchTool for .json, PDFSearchTool for .pdf, XMLSearchTool for .xml, "
                 "TXTSearchTool for .txt, and FileReadTool for any other file type. "
-                "You back every finding with statistics and never go beyond the scope of your prompt."
+                "When no file is provided, you provide a thorough analytical response based on "
+                "the context and analysis prompt. You back every finding with evidence."
             ),
             tools=[
                 self.file_read,
@@ -166,11 +227,10 @@ class Bots:
                 self.txt_search,
             ],
             verbose=True,
-            memory=True,
+            memory=False,
             llm=self._smart_llm(0.1),
-            max_rpm=15,
             allow_delegation=False,
-            cache=True,
+            cache=False,
         )
 
         self.output_formatter = Agent(
@@ -198,7 +258,7 @@ class Bots:
             memory=False,
             llm=self._smart_llm(0.1),
             allow_delegation=False,
-            cache=True,
+            cache=False,
         )
 
     def create_tasks(self):
@@ -246,27 +306,28 @@ class Bots:
 
         self.analyze_task = Task(
             description=(
-                "You have been given a dataset at path {data} and a step-by-step analysis prompt.\n\n"
-                "First, check the file extension of {data} and select the correct tool:\n"
+                "You have been given a step-by-step analysis prompt from the previous task.\n\n"
+                "Dataset path: {data}\n\n"
+                "If {data} is not empty, check the file extension and use the correct tool:\n"
                 "- .csv  → CSVSearchTool\n"
                 "- .json → JSONSearchTool\n"
                 "- .pdf  → PDFSearchTool\n"
                 "- .xml  → XMLSearchTool\n"
                 "- .txt  → TXTSearchTool\n"
                 "- anything else → FileReadTool\n\n"
-                "Then follow every step in the prompt from the previous task exactly. "
-                "Report only what the data shows."
+                "If {data} is empty, answer based on the analysis prompt using your knowledge "
+                "and reasoning — state clearly that no file was provided.\n\n"
+                "Follow every step in the prompt exactly. Report only what the data shows."
             ),
             expected_output=(
-                "A structured data analysis report containing:\n"
-                "1. Data quality summary (rows found, nulls or missing values noted)\n"
-                "2. Key statistics relevant to the prompt (averages, ranges, outliers)\n"
-                "3. 3-5 findings that directly answer the prompt\n"
-                "4. 2-3 actionable recommendations based solely on the data"
+                "A thorough data analysis report containing:\n"
+                "1. Data source summary (file type, rows found, or 'no file provided')\n"
+                "2. Key statistics relevant to the prompt (averages, ranges, counts, outliers)\n"
+                "3. 3-5 concrete findings that directly answer the prompt\n"
+                "4. 2-3 actionable recommendations based on the findings"
             ),
             context=[self.prompt_task],
             agent=self.data_analyst,
-            output_pydantic=Report,
         )
 
         self.format_task = Task(
@@ -308,16 +369,15 @@ class Bots:
             tasks=[self.interpret_task, self.prompt_task, self.analyze_task, self.format_task],
             process=Process.sequential,
             verbose=True,
-            memory=True,
-            embedder={
-                "provider": "fastembed",
-                "config": {
-                    "model": "BAAI/bge-small-en-v1.5",
-                }
-            },
+            memory=False,
         )
         result = self.crew.kickoff(inputs={"data": data})
-        # Prefer the validated pydantic model — guaranteed to match FormattedOutput
+
+        # Best case: pydantic model validated successfully
         if hasattr(result, "pydantic") and result.pydantic is not None:
             return result.pydantic.model_dump_json()
-        return str(result)
+
+        # Use raw output — .raw is explicit, str() is a fallback
+        raw = result.raw if hasattr(result, "raw") else str(result)
+
+        return _extract_json(raw)

@@ -17,6 +17,15 @@ dist-ssr
 .env.local
 .env.production.local
 
+.env
+.venv/
+.claude/
+__pycache__/
+*.pyc
+output.log
+*.tmp
+*.sq3
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
