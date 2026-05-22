@@ -401,7 +401,7 @@ class Bots:
             try:
                 result = crew.kickoff(inputs={"data": data})
             except Exception as e:
-                if "429" in str(e) and attempt < max_rotations - 1:
+                if any(code in str(e) for code in ("429", "402", "503", "529")) and attempt < max_rotations - 1:
                     self._fast_idx += 1
                     self._smart_idx += 1
                     fast_model = _FAST_MODELS[self._fast_idx % len(_FAST_MODELS)]
