@@ -401,7 +401,11 @@ export default function App() {
 
     try {
       const res = await fetch(`${API}/analyze`, { method: 'POST', body: form, signal: controller.signal })
-      if (!res.ok) { setLogs([`[ERROR] Server returned ${res.status}`]); setStatus('error'); return }
+      if (!res.ok) {
+        let msg = `Server returned ${res.status}`
+        try { const j = await res.json(); if (j.error) msg = j.error } catch {}
+        setLogs([`[ERROR] ${msg}`]); setStatus('error'); return
+      }
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()

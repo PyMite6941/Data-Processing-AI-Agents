@@ -126,6 +126,9 @@ class FormattedOutput(BaseModel):
 class Bots:
     def __init__(self, context: str):
         self.context = context
+        # Escape braces so CrewAI's .format() interpolation doesn't treat user
+        # text like "{something}" as a template variable and raise KeyError.
+        self._ctx = context.replace("{", "{{").replace("}", "}}")
         # Hermes 3 405B — fine-tuned for structured/JSON output, ideal for analyst + formatter
         self._smart_config = dict(
             model="openrouter/nousresearch/hermes-3-llama-3.1-405b:free",
@@ -265,7 +268,7 @@ class Bots:
         self.interpret_task = Task(
             description=(
                 f"The user has provided this context about what they want analyzed:\n\n"
-                f"CONTEXT: {self.context}\n\n"
+                f"CONTEXT: {self._ctx}\n\n"
                 "Rewrite this into a structured analysis directive by answering these four questions:\n"
                 "1. What is the single core question to answer?\n"
                 "2. Which columns or metrics are most relevant to that question?\n"
@@ -286,7 +289,7 @@ class Bots:
         self.prompt_task = Task(
             description=(
                 f"You have received the original user request and an analysis directive.\n\n"
-                f"ORIGINAL REQUEST: {self.context}\n\n"
+                f"ORIGINAL REQUEST: {self._ctx}\n\n"
                 "Using the directive from the previous step, write a precise step-by-step "
                 "analysis prompt for the data analyst. Your prompt must include:\n"
                 "1. The exact columns to load and examine\n"
@@ -333,7 +336,7 @@ class Bots:
         self.format_task = Task(
             description=(
                 f"Convert the analyst's findings into a FormattedOutput JSON object.\n\n"
-                f"ORIGINAL USER REQUEST: {self.context}\n\n"
+                f"ORIGINAL USER REQUEST: {self._ctx}\n\n"
                 "DECISION RULE — output_type:\n"
                 "  'chart' if the findings contain at least 2 data points with distinct numerical "
                 "values that can be meaningfully compared (revenue by product, sessions by user, "

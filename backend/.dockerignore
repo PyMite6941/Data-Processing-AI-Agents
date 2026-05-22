@@ -9,3 +9,5 @@ output.log
 .gitignore
 railway.toml
 Procfile
+.git/
+*.egg-info/

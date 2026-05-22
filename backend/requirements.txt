@@ -3,6 +3,4 @@ uvicorn[standard]
 python-dotenv
 crewai
 crewai-tools
-fastembed
-pandas
 pydantic
