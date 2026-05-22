@@ -1,37 +1,236 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+} from 'recharts'
 import './App.css'
 
-const API = 'http://localhost:8000'
+const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+
+const CHART_COLORS = ['#6366f1', '#34d399', '#f472b6', '#fbbf24', '#60a5fa', '#a78bfa', '#fb923c']
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getLogClass(line) {
   const l = line.toLowerCase()
   if (l.startsWith('[error]') || l.includes('traceback') || l.includes('exception')) return 'log-error'
   if (l.includes('warning') || l.includes('warn')) return 'log-warn'
   if (l.includes('agent:') || l.includes('task:') || l.includes('> entering') || l.includes('crew')) return 'log-agent'
-  if (l.includes('final answer') || l.includes('completed') || l.includes('finished') || l.includes('> finished')) return 'log-success'
+  if (l.includes('final answer') || l.includes('completed') || l.includes('finished')) return 'log-success'
   if (l.includes('thought:') || l.includes('action:') || l.includes('observation:')) return 'log-step'
   return ''
 }
+
+function parseResult(content) {
+  try {
+    const parsed = JSON.parse(content.trim())
+    if (parsed.output_type === 'chart' || parsed.output_type === 'report') return { type: 'structured', data: parsed }
+    return { type: 'json', data: parsed }
+  } catch {}
+  const lines = content.trim().split('\n').filter(l => l.trim())
+  if (lines.length >= 2) {
+    const cols = lines[0].split(',').length
+    if (cols > 1 && lines.slice(1, 5).every(l => l.split(',').length === cols)) return { type: 'csv', data: content }
+  }
+  return { type: 'text', data: content }
+}
+
+function triggerDownload(filename, content) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── Download popup ────────────────────────────────────────────────────────────
+
+function DownloadPopup({ parsed, onClose }) {
+  const options = []
+
+  if (parsed.type === 'structured') {
+    const d = parsed.data
+    const reportMd = [
+      `# ${d.chart_title || 'Analysis Report'}`,
+      `\n## Summary\n${d.summary}`,
+      `\n## Findings\n${d.findings.map(f => `- ${f}`).join('\n')}`,
+      `\n## Recommendations\n${d.recommendations.map(r => `- ${r}`).join('\n')}`,
+    ].join('\n')
+
+    options.push({ icon: '{}', label: 'Full JSON', ext: 'json', content: JSON.stringify(d, null, 2) })
+    options.push({ icon: '📝', label: 'Report (Markdown)', ext: 'md', content: reportMd })
+    if (d.data_points?.length) {
+      const csv = ['label,value,category', ...d.data_points.map(p => `${p.label},${p.value},${p.category ?? ''}`)]
+      options.push({ icon: '⊞', label: 'Chart Data (CSV)', ext: 'csv', content: csv.join('\n') })
+    }
+  } else if (parsed.type === 'json') {
+    options.push({ icon: '{}', label: 'JSON', ext: 'json', content: JSON.stringify(parsed.data, null, 2) })
+  } else if (parsed.type === 'csv') {
+    options.push({ icon: '⊞', label: 'CSV', ext: 'csv', content: parsed.data })
+  }
+  options.push({ icon: '📄', label: 'Plain Text', ext: 'txt', content: typeof parsed.data === 'string' ? parsed.data : JSON.stringify(parsed.data, null, 2) })
+
+  return (
+    <div className="popup-overlay" onClick={onClose}>
+      <div className="popup" onClick={e => e.stopPropagation()}>
+        <div className="popup-header">
+          <span>Download Result</span>
+          <button className="popup-close" onClick={onClose}>×</button>
+        </div>
+        <div className="popup-body">
+          {options.map((opt, i) => (
+            <button key={i} className="popup-option" onClick={() => { triggerDownload(`result.${opt.ext}`, opt.content); onClose() }}>
+              <span className="popup-option-icon">{opt.icon}</span>
+              <div className="popup-option-info">
+                <span className="popup-option-label">{opt.label}</span>
+                <span className="popup-option-ext">.{opt.ext}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Chart renderer ────────────────────────────────────────────────────────────
+
+function ChartView({ data }) {
+  const points = data.data_points ?? []
+  const chartData = points.map(p => ({ name: p.label, value: p.value, category: p.category }))
+
+  const tooltipStyle = { background: '#13141a', border: '1px solid #1e2030', borderRadius: 8, fontSize: 12 }
+
+  if (data.chart_type === 'pie') {
+    return (
+      <ResponsiveContainer width="100%" height={300}>
+        <PieChart>
+          <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={110} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+            {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+          </Pie>
+          <Tooltip contentStyle={tooltipStyle} />
+          <Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+        </PieChart>
+      </ResponsiveContainer>
+    )
+  }
+
+  if (data.chart_type === 'line') {
+    return (
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1e2030" />
+          <XAxis dataKey="name" tick={{ fill: '#4a4f6a', fontSize: 11 }} />
+          <YAxis tick={{ fill: '#4a4f6a', fontSize: 11 }} label={{ value: data.y_axis_label, angle: -90, position: 'insideLeft', fill: '#3d405a', fontSize: 11 }} />
+          <Tooltip contentStyle={tooltipStyle} />
+          <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 4 }} activeDot={{ r: 6 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    )
+  }
+
+  // Default: bar
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 30, left: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#1e2030" vertical={false} />
+        <XAxis dataKey="name" tick={{ fill: '#4a4f6a', fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+        <YAxis tick={{ fill: '#4a4f6a', fontSize: 11 }} label={{ value: data.y_axis_label, angle: -90, position: 'insideLeft', fill: '#3d405a', fontSize: 11 }} />
+        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(99,102,241,0.06)' }} />
+        <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+          {chartData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+// ── Result views ──────────────────────────────────────────────────────────────
+
+function StructuredReport({ data }) {
+  return (
+    <div className="structured-report">
+      <div className="report-summary">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.summary}</ReactMarkdown>
+      </div>
+      {data.findings?.length > 0 && (
+        <div className="report-section">
+          <h3 className="report-section-title">Findings</h3>
+          <ul className="report-list">
+            {data.findings.map((f, i) => <li key={i}><ReactMarkdown remarkPlugins={[remarkGfm]}>{f}</ReactMarkdown></li>)}
+          </ul>
+        </div>
+      )}
+      {data.recommendations?.length > 0 && (
+        <div className="report-section">
+          <h3 className="report-section-title">Recommendations</h3>
+          <ul className="report-list report-list--rec">
+            {data.recommendations.map((r, i) => <li key={i}><ReactMarkdown remarkPlugins={[remarkGfm]}>{r}</ReactMarkdown></li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResultView({ parsed }) {
+  if (parsed.type === 'structured') {
+    return <StructuredReport data={parsed.data} />
+  }
+  if (parsed.type === 'json') {
+    return <pre className="result-code result-json">{JSON.stringify(parsed.data, null, 2)}</pre>
+  }
+  if (parsed.type === 'csv') {
+    const lines = parsed.data.trim().split('\n').filter(l => l.trim())
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+    const rows = lines.slice(1).map(l => l.split(',').map(c => c.trim().replace(/^"|"$/g, '')))
+    return (
+      <div className="result-table-wrap">
+        <table className="result-table">
+          <thead><tr>{headers.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
+          <tbody>{rows.map((row, i) => <tr key={i}>{row.map((c, j) => <td key={j}>{c}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    )
+  }
+  return (
+    <div className="result-markdown">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{parsed.data}</ReactMarkdown>
+    </div>
+  )
+}
+
+// ── Main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [context, setContext] = useState('')
   const [file, setFile] = useState(null)
   const [logs, setLogs] = useState([])
+  const [result, setResult] = useState(null)
   const [status, setStatus] = useState('idle')
   const [showLog, setShowLog] = useState(true)
+  const [activeTab, setActiveTab] = useState('logs')
+  const [showDownload, setShowDownload] = useState(false)
   const logEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const abortRef = useRef(null)
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs])
+    if (activeTab === 'logs') logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logs, activeTab])
+
+  useEffect(() => {
+    if (result) setActiveTab('result')
+  }, [result])
+
+  const parsed = result ? parseResult(result) : null
+  const hasChart = parsed?.type === 'structured' && parsed.data?.output_type === 'chart' && parsed.data?.data_points?.length > 0
 
   async function handleAnalyze() {
     if (!context.trim() || status === 'running') return
-    setLogs([])
-    setStatus('running')
-    setShowLog(true)
+    setLogs([]); setResult(null); setActiveTab('logs'); setStatus('running'); setShowLog(true)
 
     const form = new FormData()
     form.append('context', context)
@@ -41,17 +240,8 @@ export default function App() {
     abortRef.current = controller
 
     try {
-      const res = await fetch(`${API}/analyze`, {
-        method: 'POST',
-        body: form,
-        signal: controller.signal,
-      })
-
-      if (!res.ok) {
-        setLogs([`[ERROR] Server returned ${res.status}`])
-        setStatus('error')
-        return
-      }
+      const res = await fetch(`${API}/analyze`, { method: 'POST', body: form, signal: controller.signal })
+      if (!res.ok) { setLogs([`[ERROR] Server returned ${res.status}`]); setStatus('error'); return }
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -61,42 +251,23 @@ export default function App() {
         const { done, value } = await reader.read()
         if (done) break
         buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop()
+        const lines = buf.split('\n'); buf = lines.pop()
         for (const raw of lines) {
           if (!raw.startsWith('data: ')) continue
           let payload
           try { payload = JSON.parse(raw.slice(6)) } catch { continue }
           if (payload === '__DONE__') { setStatus('done'); return }
-          setLogs(prev => [...prev, payload])
+          if (payload?.type === 'result') { setResult(payload.content) }
+          else { setLogs(prev => [...prev, payload]) }
         }
       }
       setStatus('done')
     } catch (err) {
-      if (err.name !== 'AbortError') {
-        setLogs(prev => [...prev, `[ERROR] ${err.message}`])
-        setStatus('error')
-      }
+      if (err.name !== 'AbortError') { setLogs(prev => [...prev, `[ERROR] ${err.message}`]); setStatus('error') }
     }
   }
 
-  function handleStop() {
-    abortRef.current?.abort()
-    setStatus('idle')
-  }
-
-  function handleDrop(e) {
-    e.preventDefault()
-    const dropped = e.dataTransfer.files[0]
-    if (dropped) setFile(dropped)
-  }
-
-  function handleReset() {
-    setLogs([])
-    setStatus('idle')
-    setFile(null)
-    setContext('')
-  }
+  function handleReset() { setLogs([]); setResult(null); setStatus('idle'); setActiveTab('logs'); setFile(null); setContext('') }
 
   return (
     <div className="app">
@@ -110,109 +281,66 @@ export default function App() {
         </div>
         <div className="topbar-right">
           <span className="topbar-tag">AI Agent Pipeline</span>
-          <button
-            className={`toggle-log-btn${showLog ? ' toggle-log-btn--active' : ''}`}
-            onClick={() => setShowLog(v => !v)}
-            title={showLog ? 'Hide agent output' : 'Show agent output'}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.3"/>
-              <line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" strokeWidth="1.3"/>
-            </svg>
+          <button className={`toggle-log-btn${showLog ? ' toggle-log-btn--active' : ''}`} onClick={() => setShowLog(v => !v)}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1" y="2" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.3"/><line x1="6" y1="2" x2="6" y2="14" stroke="currentColor" strokeWidth="1.3"/></svg>
             {showLog ? 'Hide Output' : 'Show Output'}
-            {!showLog && logs.length > 0 && (
-              <span className="toggle-log-count">{logs.length}</span>
-            )}
+            {!showLog && logs.length > 0 && <span className="toggle-log-count">{logs.length}</span>}
           </button>
         </div>
       </header>
 
       <main className={`workspace${showLog ? '' : ' workspace--log-hidden'}`}>
+        {/* ── Left panel ── */}
         <section className="input-panel">
           <h1 className="panel-title">What do you want to analyze?</h1>
-          <p className="panel-sub">
-            Describe your dataset and the question you want answered. The agent pipeline
-            will interpret your request, clean the data, and extract insights.
-          </p>
+          <p className="panel-sub">Describe your dataset and the question you want answered. The agent pipeline will interpret your request, clean the data, and extract insights.</p>
 
           <div className="field">
             <label className="field-label">Context</label>
-            <textarea
-              className="context-area"
-              placeholder="e.g. I have a CSV of monthly sales. Show me the top 5 products by revenue in Q3 and flag any anomalies in the trend…"
-              value={context}
-              onChange={e => setContext(e.target.value)}
-              rows={5}
-              disabled={status === 'running'}
-            />
+            <textarea className="context-area" placeholder="e.g. I have a CSV of monthly sales. Show me the top 5 products by revenue in Q3 and flag any anomalies…" value={context} onChange={e => setContext(e.target.value)} rows={5} disabled={status === 'running'} />
           </div>
 
           <div className="field">
-            <label className="field-label">
-              Data file <span className="field-opt">optional</span>
-            </label>
-            <div
-              className={`dropzone${file ? ' dropzone--has-file' : ''}`}
-              onDrop={handleDrop}
-              onDragOver={e => e.preventDefault()}
-              onClick={() => fileInputRef.current?.click()}
-              role="button"
-              tabIndex={0}
-              onKeyDown={e => e.key === 'Enter' && fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.json,.txt,.pdf,.xml"
-                onChange={e => setFile(e.target.files[0] || null)}
-                style={{ display: 'none' }}
-              />
+            <label className="field-label">Data file <span className="field-opt">optional</span></label>
+            <div className={`dropzone${file ? ' dropzone--has-file' : ''}`} onDrop={e => { e.preventDefault(); setFile(e.dataTransfer.files[0] || null) }} onDragOver={e => e.preventDefault()} onClick={() => fileInputRef.current?.click()} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && fileInputRef.current?.click()}>
+              <input ref={fileInputRef} type="file" accept=".csv,.json,.txt,.pdf,.xml" onChange={e => setFile(e.target.files[0] || null)} style={{ display: 'none' }} />
               {file ? (
-                <span className="dropzone-filename">
-                  <span className="dropzone-icon">📄</span> {file.name}
-                  <button
-                    className="dropzone-clear"
-                    onClick={e => { e.stopPropagation(); setFile(null) }}
-                    aria-label="Remove file"
-                  >×</button>
+                <span className="dropzone-filename"><span className="dropzone-icon">📄</span> {file.name}
+                  <button className="dropzone-clear" onClick={e => { e.stopPropagation(); setFile(null) }}>×</button>
                 </span>
               ) : (
-                <span className="dropzone-hint">
-                  Drop a file here or <u>click to upload</u>
-                  <span className="dropzone-types">CSV · JSON · TXT · PDF · XML</span>
-                </span>
+                <span className="dropzone-hint">Drop a file here or <u>click to upload</u><span className="dropzone-types">CSV · JSON · TXT · PDF · XML</span></span>
               )}
             </div>
           </div>
 
           <div className="action-row">
-            <button
-              className="btn btn-primary"
-              onClick={handleAnalyze}
-              disabled={!context.trim() || status === 'running'}
-            >
-              {status === 'running'
-                ? <><span className="btn-spinner" /> Running…</>
-                : 'Run Analysis'}
+            <button className="btn btn-primary" onClick={handleAnalyze} disabled={!context.trim() || status === 'running'}>
+              {status === 'running' ? <><span className="btn-spinner" /> Running…</> : 'Run Analysis'}
             </button>
-            {status === 'running' && (
-              <button className="btn btn-ghost" onClick={handleStop}>Stop</button>
-            )}
-            {(status === 'done' || status === 'error') && (
-              <button className="btn btn-ghost" onClick={handleReset}>Reset</button>
-            )}
+            {status === 'running' && <button className="btn btn-ghost" onClick={() => { abortRef.current?.abort(); setStatus('idle') }}>Stop</button>}
+            {(status === 'done' || status === 'error') && <button className="btn btn-ghost" onClick={handleReset}>Reset</button>}
           </div>
         </section>
 
+        {/* ── Right panel ── */}
         <section className="log-panel">
-          <div className="log-header">
-            <div className="log-header-left">
+          <div className="tab-bar">
+            <div className="tab-bar-left">
               <div className="log-dots">
-                <div className="log-dot log-dot-r" />
-                <div className="log-dot log-dot-y" />
-                <div className="log-dot log-dot-g" />
+                <div className="log-dot log-dot-r" /><div className="log-dot log-dot-y" /><div className="log-dot log-dot-g" />
               </div>
-              <span className="log-title">Agent Output</span>
+              <button className={`tab-btn${activeTab === 'logs' ? ' tab-btn--active' : ''}`} onClick={() => setActiveTab('logs')}>
+                Logs {logs.length > 0 && <span className="tab-count">{logs.length}</span>}
+              </button>
+              <button className={`tab-btn${activeTab === 'result' ? ' tab-btn--active' : ''}${parsed ? ' tab-btn--has-result' : ''}`} onClick={() => setActiveTab('result')} disabled={!parsed}>
+                Result {parsed && <span className="tab-count tab-count--result">✓</span>}
+              </button>
+              {hasChart && (
+                <button className={`tab-btn${activeTab === 'artifacts' ? ' tab-btn--active' : ''} tab-btn--chart`} onClick={() => setActiveTab('artifacts')}>
+                  Artifacts <span className="tab-count tab-count--chart">📊</span>
+                </button>
+              )}
             </div>
             {status !== 'idle' && (
               <span className={`log-badge log-badge--${status}`}>
@@ -222,38 +350,71 @@ export default function App() {
             )}
           </div>
 
-          <div className="log-terminal" role="log" aria-live="polite">
-            {logs.length === 0 && status === 'idle' && (
-              <div className="log-empty">
-                <span className="log-empty-icon">⬡</span>
-                <span>Agent output will stream here in real-time.</span>
-              </div>
-            )}
-            {logs.length === 0 && status === 'running' && (
-              <div className="log-empty log-empty--active">
-                <span>Initializing agent pipeline</span>
-              </div>
-            )}
-            {logs.map((line, i) => (
-              <div key={i} className={`log-line ${getLogClass(line)}`}>
-                <span className="log-gutter">{String(i + 1).padStart(3, ' ')}</span>
-                <span className="log-text">{line}</span>
-              </div>
-            ))}
-            <div ref={logEndRef} />
-          </div>
+          {/* Logs tab */}
+          {activeTab === 'logs' && <>
+            <div className="log-terminal" role="log" aria-live="polite">
+              {logs.length === 0 && status === 'idle' && <div className="log-empty"><span className="log-empty-icon">⬡</span><span>Agent output will stream here in real-time.</span></div>}
+              {logs.length === 0 && status === 'running' && <div className="log-empty log-empty--active"><span>Initializing agent pipeline</span></div>}
+              {logs.map((line, i) => (
+                <div key={i} className={`log-line ${getLogClass(line)}`}>
+                  <span className="log-gutter">{String(i + 1).padStart(3, ' ')}</span>
+                  <span className="log-text">{line}</span>
+                </div>
+              ))}
+              <div ref={logEndRef} />
+            </div>
+            {logs.length > 0 && <div className="log-footer"><span>{logs.length} lines</span><button className="log-copy" onClick={() => navigator.clipboard.writeText(logs.join('\n'))}>Copy all</button></div>}
+          </>}
 
-          {logs.length > 0 && (
-            <div className="log-footer">
-              <span>{logs.length} line{logs.length !== 1 ? 's' : ''}</span>
-              <button
-                className="log-copy"
-                onClick={() => navigator.clipboard.writeText(logs.join('\n'))}
-              >Copy all</button>
+          {/* Result tab */}
+          {activeTab === 'result' && (
+            <div className="result-panel">
+              {!parsed ? (
+                <div className="log-empty"><span className="log-empty-icon">⬡</span><span>Result will appear once analysis completes.</span></div>
+              ) : <>
+                <div className="result-type-bar">
+                  <span className="result-type-badge">{parsed.type === 'structured' ? parsed.data.output_type.toUpperCase() : parsed.type.toUpperCase()}</span>
+                  {parsed.type === 'structured' && parsed.data.chart_type && <span className="result-chart-badge">{parsed.data.chart_type} chart</span>}
+                </div>
+                <div className="result-body"><ResultView parsed={parsed} /></div>
+                <div className="log-footer">
+                  <span>{result.length} chars</span>
+                  <button className="btn-download" onClick={() => setShowDownload(true)}>⬇ Download</button>
+                </div>
+              </>}
+            </div>
+          )}
+
+          {/* Artifacts tab */}
+          {activeTab === 'artifacts' && hasChart && (
+            <div className="result-panel">
+              <div className="result-type-bar">
+                <span className="result-type-badge">CHART</span>
+                <span className="result-chart-badge">{parsed.data.chart_type}</span>
+              </div>
+              <div className="artifact-body">
+                <h2 className="chart-title">{parsed.data.chart_title}</h2>
+                {parsed.data.x_axis_label && <p className="chart-axis-label">X: {parsed.data.x_axis_label} · Y: {parsed.data.y_axis_label}</p>}
+                <ChartView data={parsed.data} />
+                <div className="artifact-stats">
+                  {parsed.data.data_points.map((p, i) => (
+                    <div key={i} className="stat-chip" style={{ borderColor: CHART_COLORS[i % CHART_COLORS.length] + '44', background: CHART_COLORS[i % CHART_COLORS.length] + '11' }}>
+                      <span className="stat-label">{p.label}</span>
+                      <span className="stat-value" style={{ color: CHART_COLORS[i % CHART_COLORS.length] }}>{p.value.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="log-footer">
+                <span>{parsed.data.data_points.length} data points</span>
+                <button className="btn-download" onClick={() => setShowDownload(true)}>⬇ Download</button>
+              </div>
             </div>
           )}
         </section>
       </main>
+
+      {showDownload && parsed && <DownloadPopup parsed={parsed} onClose={() => setShowDownload(false)} />}
     </div>
   )
 }

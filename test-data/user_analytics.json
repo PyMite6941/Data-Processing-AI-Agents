@@ -1,0 +1,29 @@
+{
+  "report_period": "2024-Q1",
+  "app": "TaskFlow",
+  "users": [
+    {"id": "u001", "name": "Jordan Lee",    "plan": "pro",   "country": "US", "signup_date": "2023-03-12", "sessions_jan": 48, "sessions_feb": 51, "sessions_mar": 44, "avg_session_min": 18.4, "features_used": ["kanban","calendar","integrations","reports"], "churned": false, "nps_score": 9},
+    {"id": "u002", "name": "Priya Nair",    "plan": "free",  "country": "IN", "signup_date": "2023-11-05", "sessions_jan": 6,  "sessions_feb": 4,  "sessions_mar": 2,  "avg_session_min": 4.1,  "features_used": ["kanban"], "churned": true,  "nps_score": 5},
+    {"id": "u003", "name": "Marcus Webb",   "plan": "pro",   "country": "UK", "signup_date": "2022-07-19", "sessions_jan": 62, "sessions_feb": 58, "sessions_mar": 70, "avg_session_min": 24.7, "features_used": ["kanban","calendar","reports","automations","integrations"], "churned": false, "nps_score": 10},
+    {"id": "u004", "name": "Sofia Reyes",   "plan": "team",  "country": "MX", "signup_date": "2023-08-30", "sessions_jan": 31, "sessions_feb": 29, "sessions_mar": 35, "avg_session_min": 12.3, "features_used": ["kanban","calendar","team_boards"], "churned": false, "nps_score": 8},
+    {"id": "u005", "name": "Liam Okafor",   "plan": "free",  "country": "NG", "signup_date": "2024-01-02", "sessions_jan": 9,  "sessions_feb": 7,  "sessions_mar": 5,  "avg_session_min": 6.8,  "features_used": ["kanban","calendar"], "churned": false, "nps_score": 7},
+    {"id": "u006", "name": "Emma Larsson",  "plan": "pro",   "country": "SE", "signup_date": "2023-01-15", "sessions_jan": 55, "sessions_feb": 60, "sessions_mar": 58, "avg_session_min": 21.2, "features_used": ["kanban","reports","automations"], "churned": false, "nps_score": 9},
+    {"id": "u007", "name": "Takeshi Mori",  "plan": "team",  "country": "JP", "signup_date": "2022-12-01", "sessions_jan": 40, "sessions_feb": 38, "sessions_mar": 42, "avg_session_min": 15.9, "features_used": ["kanban","calendar","team_boards","reports"], "churned": false, "nps_score": 8},
+    {"id": "u008", "name": "Aisha Kamara",  "plan": "free",  "country": "SL", "signup_date": "2023-09-14", "sessions_jan": 3,  "sessions_feb": 1,  "sessions_mar": 0,  "avg_session_min": 2.4,  "features_used": ["kanban"], "churned": true,  "nps_score": 4},
+    {"id": "u009", "name": "Carlos Vega",   "plan": "pro",   "country": "CO", "signup_date": "2023-05-22", "sessions_jan": 37, "sessions_feb": 41, "sessions_mar": 39, "avg_session_min": 16.6, "features_used": ["kanban","integrations","reports"], "churned": false, "nps_score": 8},
+    {"id": "u010", "name": "Nina Petrov",   "plan": "team",  "country": "RU", "signup_date": "2023-02-10", "sessions_jan": 28, "sessions_feb": 25, "sessions_mar": 30, "avg_session_min": 11.0, "features_used": ["kanban","team_boards"], "churned": false, "nps_score": 7},
+    {"id": "u011", "name": "James Obi",     "plan": "free",  "country": "GH", "signup_date": "2024-02-08", "sessions_jan": 0,  "sessions_feb": 11, "sessions_mar": 8,  "avg_session_min": 5.5,  "features_used": ["kanban","calendar"], "churned": false, "nps_score": 6},
+    {"id": "u012", "name": "Yuki Tanaka",   "plan": "pro",   "country": "JP", "signup_date": "2022-05-30", "sessions_jan": 70, "sessions_feb": 74, "sessions_mar": 68, "avg_session_min": 27.3, "features_used": ["kanban","calendar","reports","automations","integrations","team_boards"], "churned": false, "nps_score": 10},
+    {"id": "u013", "name": "Omar Hassan",   "plan": "free",  "country": "EG", "signup_date": "2023-12-19", "sessions_jan": 5,  "sessions_feb": 3,  "sessions_mar": 1,  "avg_session_min": 3.2,  "features_used": ["kanban"], "churned": true,  "nps_score": 5},
+    {"id": "u014", "name": "Rachel Kim",    "plan": "team",  "country": "KR", "signup_date": "2023-04-07", "sessions_jan": 44, "sessions_feb": 47, "sessions_mar": 50, "avg_session_min": 19.8, "features_used": ["kanban","calendar","team_boards","integrations"], "churned": false, "nps_score": 9},
+    {"id": "u015", "name": "Diego Flores",  "plan": "pro",   "country": "AR", "signup_date": "2023-06-25", "sessions_jan": 33, "sessions_feb": 36, "sessions_mar": 31, "avg_session_min": 14.4, "features_used": ["kanban","reports","automations"], "churned": false, "nps_score": 8}
+  ],
+  "feature_usage_summary": {
+    "kanban":       {"total_users": 15, "pro_users": 6, "team_users": 4, "free_users": 5},
+    "calendar":     {"total_users": 10, "pro_users": 4, "team_users": 3, "free_users": 3},
+    "reports":      {"total_users": 7,  "pro_users": 6, "team_users": 1, "free_users": 0},
+    "automations":  {"total_users": 4,  "pro_users": 4, "team_users": 0, "free_users": 0},
+    "integrations": {"total_users": 5,  "pro_users": 4, "team_users": 1, "free_users": 0},
+    "team_boards":  {"total_users": 5,  "pro_users": 1, "team_users": 4, "free_users": 0}
+  }
+}

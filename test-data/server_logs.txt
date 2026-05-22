@@ -1,0 +1,110 @@
+SERVER PERFORMANCE LOG — api.taskflow.io
+Period: 2024-03-01 to 2024-03-07
+Generated: 2024-03-08 00:00:01 UTC
+
+=== DAILY SUMMARY ===
+
+2024-03-01 (Friday)
+  Total requests:      84,291
+  Successful (2xx):    81,940  (97.2%)
+  Client errors (4xx): 1,847   (2.2%)
+  Server errors (5xx): 504     (0.6%)
+  Avg response time:   142ms
+  P95 response time:   380ms
+  P99 response time:   910ms
+  Peak hour:           14:00 UTC  (6,203 req/hr)
+  Slowest endpoint:    POST /api/automations/trigger  (avg 841ms)
+
+2024-03-02 (Saturday)
+  Total requests:      41,058
+  Successful (2xx):    40,321  (98.2%)
+  Client errors (4xx): 614     (1.5%)
+  Server errors (5xx): 123     (0.3%)
+  Avg response time:   98ms
+  P95 response time:   210ms
+  P99 response time:   480ms
+  Peak hour:           11:00 UTC  (3,102 req/hr)
+  Slowest endpoint:    GET /api/reports/export  (avg 620ms)
+
+2024-03-03 (Sunday)
+  Total requests:      38,774
+  Successful (2xx):    38,100  (98.3%)
+  Client errors (4xx): 571     (1.5%)
+  Server errors (5xx): 103     (0.3%)
+  Avg response time:   94ms
+  P95 response time:   198ms
+  P99 response time:   440ms
+  Peak hour:           13:00 UTC  (2,890 req/hr)
+  Slowest endpoint:    GET /api/reports/export  (avg 598ms)
+
+2024-03-04 (Monday)
+  Total requests:      97,512
+  Successful (2xx):    91,204  (93.5%)
+  Client errors (4xx): 2,311   (2.4%)
+  Server errors (5xx): 3,997   (4.1%)  *** ELEVATED ***
+  Avg response time:   389ms   *** HIGH ***
+  P95 response time:   1,840ms *** HIGH ***
+  P99 response time:   4,200ms *** HIGH ***
+  Peak hour:           09:00 UTC  (9,841 req/hr)
+  Slowest endpoint:    POST /api/integrations/sync  (avg 3,210ms)
+  Incident note:       DB connection pool exhaustion 09:12-10:47 UTC.
+                       Root cause: Monday morning sync spike + missing index on integrations table.
+                       Resolved by adding index and increasing pool size to 150.
+
+2024-03-05 (Tuesday)
+  Total requests:      91,804
+  Successful (2xx):    89,933  (97.9%)
+  Client errors (4xx): 1,688   (1.8%)
+  Server errors (5xx): 183     (0.2%)
+  Avg response time:   158ms
+  P95 response time:   401ms
+  P99 response time:   870ms
+  Peak hour:           14:00 UTC  (7,120 req/hr)
+  Slowest endpoint:    POST /api/automations/trigger  (avg 790ms)
+
+2024-03-06 (Wednesday)
+  Total requests:      93,140
+  Successful (2xx):    91,178  (97.9%)
+  Client errors (4xx): 1,710   (1.8%)
+  Server errors (5xx): 252     (0.3%)
+  Avg response time:   161ms
+  P95 response time:   415ms
+  P99 response time:   890ms
+  Peak hour:           15:00 UTC  (7,380 req/hr)
+  Slowest endpoint:    POST /api/automations/trigger  (avg 812ms)
+
+2024-03-07 (Thursday)
+  Total requests:      94,887
+  Successful (2xx):    92,800  (97.8%)
+  Client errors (4xx): 1,802   (1.9%)
+  Server errors (5xx): 285     (0.3%)
+  Avg response time:   165ms
+  P95 response time:   422ms
+  P99 response time:   905ms
+  Peak hour:           14:00 UTC  (7,590 req/hr)
+  Slowest endpoint:    POST /api/automations/trigger  (avg 820ms)
+
+=== WEEKLY TOTALS ===
+  Total requests:      541,466
+  Total errors (5xx):  5,447
+  Overall error rate:  1.0%
+  Weekly avg response: 172ms
+  Busiest day:         Monday (97,512 req)
+  Quietest day:        Sunday (38,774 req)
+
+=== TOP ENDPOINTS BY VOLUME ===
+  1. GET  /api/tasks              — 198,420 req  — avg 88ms
+  2. POST /api/tasks              —  74,310 req  — avg 134ms
+  3. GET  /api/calendar/events    —  61,880 req  — avg 102ms
+  4. GET  /api/notifications      —  58,240 req  — avg 71ms
+  5. POST /api/integrations/sync  —  34,910 req  — avg 680ms  *** slow ***
+  6. POST /api/automations/trigger—  28,440 req  — avg 818ms  *** slow ***
+  7. GET  /api/reports/export     —  19,200 req  — avg 612ms  *** slow ***
+  8. POST /api/auth/login         —  17,880 req  — avg 210ms
+  9. GET  /api/team/members       —  14,330 req  — avg 95ms
+ 10. PUT  /api/tasks/:id          —  13,910 req  — avg 141ms
+
+=== RECOMMENDATIONS ===
+  - Investigate automations/trigger latency (consistently >800ms all week)
+  - Monday morning spike requires pre-warming or queue-based sync throttling
+  - reports/export should be moved to async job + polling pattern

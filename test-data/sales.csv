@@ -1,0 +1,51 @@
+date,region,product,category,units_sold,unit_price,revenue,returns,sales_rep
+2024-01-03,North,ProDesk X1,Hardware,42,899.99,37799.58,2,Alice Chen
+2024-01-05,South,CloudSync Pro,Software,130,49.99,6498.70,0,Bob Martinez
+2024-01-08,East,ProDesk X1,Hardware,17,899.99,15299.83,1,Carol Singh
+2024-01-10,West,SmartHub 360,Hardware,88,199.99,17599.12,5,David Park
+2024-01-12,North,CloudSync Pro,Software,210,49.99,10497.90,3,Alice Chen
+2024-01-15,South,DataVault,Software,55,299.99,16499.45,0,Bob Martinez
+2024-01-18,East,SmartHub 360,Hardware,63,199.99,12599.37,2,Carol Singh
+2024-01-22,West,ProDesk X1,Hardware,29,899.99,26099.71,0,David Park
+2024-01-25,North,DataVault,Software,78,299.99,23399.22,1,Alice Chen
+2024-01-28,South,SmartHub 360,Hardware,104,199.99,20798.96,7,Bob Martinez
+2024-02-02,East,CloudSync Pro,Software,188,49.99,9398.12,0,Carol Singh
+2024-02-05,West,DataVault,Software,61,299.99,18299.39,2,David Park
+2024-02-08,North,SmartHub 360,Hardware,95,199.99,18999.05,4,Alice Chen
+2024-02-11,South,ProDesk X1,Hardware,38,899.99,34199.62,1,Bob Martinez
+2024-02-14,East,DataVault,Software,82,299.99,24599.18,0,Carol Singh
+2024-02-18,West,CloudSync Pro,Software,245,49.99,12247.55,6,David Park
+2024-02-21,North,ProDesk X1,Hardware,51,899.99,45899.49,3,Alice Chen
+2024-02-25,South,SmartHub 360,Hardware,116,199.99,23198.84,8,Bob Martinez
+2024-02-28,East,ProDesk X1,Hardware,22,899.99,19799.78,0,Carol Singh
+2024-03-03,West,DataVault,Software,90,299.99,26999.10,1,David Park
+2024-03-06,North,CloudSync Pro,Software,310,49.99,15496.90,5,Alice Chen
+2024-03-10,South,ProDesk X1,Hardware,44,899.99,39599.56,2,Bob Martinez
+2024-03-13,East,SmartHub 360,Hardware,71,199.99,14199.29,3,Carol Singh
+2024-03-17,West,ProDesk X1,Hardware,33,899.99,29699.67,0,David Park
+2024-03-20,North,DataVault,Software,105,299.99,31498.95,4,Alice Chen
+2024-03-24,South,CloudSync Pro,Software,275,49.99,13747.25,0,Bob Martinez
+2024-03-27,East,DataVault,Software,68,299.99,20399.32,1,Carol Singh
+2024-03-30,West,SmartHub 360,Hardware,122,199.99,24398.78,9,David Park
+2024-04-02,North,ProDesk X1,Hardware,58,899.99,52199.42,2,Alice Chen
+2024-04-06,South,SmartHub 360,Hardware,97,199.99,19399.03,5,Bob Martinez
+2024-04-09,East,CloudSync Pro,Software,201,49.99,10047.99,0,Carol Singh
+2024-04-12,West,DataVault,Software,74,299.99,22199.26,2,David Park
+2024-04-15,North,SmartHub 360,Hardware,83,199.99,16599.17,3,Alice Chen
+2024-04-19,South,DataVault,Software,49,299.99,14699.51,0,Bob Martinez
+2024-04-22,East,ProDesk X1,Hardware,26,899.99,23399.74,1,Carol Singh
+2024-04-26,West,CloudSync Pro,Software,198,49.99,9898.02,4,David Park
+2024-04-29,North,CloudSync Pro,Software,289,49.99,14447.11,2,Alice Chen
+2024-05-03,South,ProDesk X1,Hardware,47,899.99,42299.53,0,Bob Martinez
+2024-05-07,East,SmartHub 360,Hardware,79,199.99,15799.21,6,Carol Singh
+2024-05-10,West,ProDesk X1,Hardware,35,899.99,31499.65,1,David Park
+2024-05-14,North,DataVault,Software,112,299.99,33598.88,3,Alice Chen
+2024-05-17,South,CloudSync Pro,Software,320,49.99,15996.80,0,Bob Martinez
+2024-05-20,East,DataVault,Software,57,299.99,17099.43,2,Carol Singh
+2024-05-24,West,SmartHub 360,Hardware,108,199.99,21598.92,7,David Park
+2024-05-27,North,ProDesk X1,Hardware,62,899.99,55799.38,1,Alice Chen
+2024-05-31,South,SmartHub 360,Hardware,88,199.99,17599.12,4,Bob Martinez
+2024-06-03,East,CloudSync Pro,Software,176,49.99,8798.24,0,Carol Singh
+2024-06-06,West,DataVault,Software,93,299.99,27899.07,2,David Park
+2024-06-10,North,SmartHub 360,Hardware,71,199.99,14199.29,5,Alice Chen
+2024-06-13,South,ProDesk X1,Hardware,53,899.99,47699.47,1,Bob Martinez

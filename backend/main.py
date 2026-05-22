@@ -7,6 +7,9 @@ import os
 import re
 import asyncio
 import json
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -14,9 +17,14 @@ from bots import Bots
 
 app = FastAPI()
 
+# Accept localhost dev + any deployed frontend URL set via FRONTEND_URL env var
+_origins = ["http://localhost:5173"]
+if os.getenv("FRONTEND_URL"):
+    _origins.append(os.getenv("FRONTEND_URL"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -47,6 +55,11 @@ class LineCapture(io.TextIOBase):
             self._buf = ""
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.post("/analyze")
 async def analyze(context: str = Form(...), file: UploadFile = File(None)):
     file_content = None
@@ -75,7 +88,9 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
                 bots = Bots(context)
                 bots.create_agents()
                 bots.create_tasks()
-                bots.create_crew(data_path or "")
+                result = bots.create_crew(data_path or "")
+                if result:
+                    q.put({"__result__": result})
             except Exception as exc:
                 q.put(f"[ERROR] {exc}")
             finally:
@@ -83,18 +98,31 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
                 sys.stderr = old_stderr
                 if data_path and os.path.exists(data_path):
                     os.unlink(data_path)
-                q.put(None)  # sentinel — stream is over
+                q.put(None)
 
         thread = threading.Thread(target=run_crew, daemon=True)
         thread.start()
 
         loop = asyncio.get_running_loop()
         while True:
-            item = await loop.run_in_executor(None, q.get)
+            try:
+                # Block up to 30s; if nothing arrives send a heartbeat to
+                # keep Cloudflare's proxy (used by HF Spaces) from closing
+                # the connection on the 100-second idle timeout.
+                item = await loop.run_in_executor(
+                    None, lambda: q.get(timeout=30)
+                )
+            except queue.Empty:
+                yield ": ping\n\n"
+                continue
+
             if item is None:
                 yield f"data: {json.dumps('__DONE__')}\n\n"
                 break
-            yield f"data: {json.dumps(item)}\n\n"
+            if isinstance(item, dict) and "__result__" in item:
+                yield f"data: {json.dumps({'type': 'result', 'content': item['__result__']})}\n\n"
+            else:
+                yield f"data: {json.dumps(item)}\n\n"
 
     return StreamingResponse(
         event_stream(),
