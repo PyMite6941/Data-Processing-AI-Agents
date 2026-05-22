@@ -1,11 +1,27 @@
 from crewai import Agent, Crew, Task, Process, LLM
 from crewai_tools import FileReadTool, CSVSearchTool, JSONSearchTool, PDFSearchTool, XMLSearchTool, TXTSearchTool
 import os
+import time as _time
 from typing import Optional, Literal
 from pydantic import BaseModel
 
 import re as _re
 import json as _json
+
+# ── Model rotation pools ──────────────────────────────────────────────────────
+# Ordered by preference. On 429 the pipeline rotates to the next entry.
+# Each uses a different upstream provider so one rate-limit rarely hits all.
+_FAST_MODELS = [
+    "openrouter/deepseek/deepseek-v4-flash:free",       # DeepSeek-hosted
+    "openrouter/minimax/minimax-m2.5:free",              # MiniMax-hosted
+    "openrouter/z-ai/glm-4.5-air:free",                  # Z.ai-hosted
+    "openrouter/meta-llama/llama-3.3-70b-instruct:free", # Venice (last resort)
+]
+_SMART_MODELS = [
+    "openrouter/nousresearch/hermes-3-llama-3.1-405b:free", # Nous-hosted
+    "openrouter/qwen/qwen3-coder:free",                      # Qwen-hosted
+    "openrouter/deepseek/deepseek-v4-flash:free",            # DeepSeek fallback
+]
 
 
 def _extract_json(text: str) -> str:
@@ -129,22 +145,9 @@ class Bots:
         # Escape braces so CrewAI's .format() interpolation doesn't treat user
         # text like "{something}" as a template variable and raise KeyError.
         self._ctx = context.replace("{", "{{").replace("}", "}}")
-        # Hermes 3 405B — fine-tuned for structured/JSON output, ideal for analyst + formatter
-        self._smart_config = dict(
-            model="openrouter/nousresearch/hermes-3-llama-3.1-405b:free",
-            api_key=os.getenv("OPENROUTER_API_KEY"),
-            max_tokens=4096,
-            max_retries=1,
-            timeout=120,
-        )
-        # Gemma 4 26B — Google-hosted, fast for directive/prompt tasks
-        self._fast_config = dict(
-            model="openrouter/google/gemma-4-26b-a4b-it:free",
-            api_key=os.getenv("OPENROUTER_API_KEY"),
-            max_tokens=2048,
-            max_retries=2,
-            timeout=120,
-        )
+        self._key = os.getenv("OPENROUTER_API_KEY")
+        self._fast_idx = 0
+        self._smart_idx = 0
         self.file_read = FileReadTool()
         self.csv_search = CSVSearchTool()
         self.json_search = JSONSearchTool()
@@ -153,10 +156,24 @@ class Bots:
         self.txt_search = TXTSearchTool()
 
     def _smart_llm(self, temperature: float) -> LLM:
-        return LLM(**self._smart_config, temperature=temperature)
+        return LLM(
+            model=_SMART_MODELS[self._smart_idx % len(_SMART_MODELS)],
+            api_key=self._key,
+            max_tokens=4096,
+            max_retries=1,
+            timeout=120,
+            temperature=temperature,
+        )
 
     def _fast_llm(self, temperature: float) -> LLM:
-        return LLM(**self._fast_config, temperature=temperature)
+        return LLM(
+            model=_FAST_MODELS[self._fast_idx % len(_FAST_MODELS)],
+            api_key=self._key,
+            max_tokens=2048,
+            max_retries=1,
+            timeout=120,
+            temperature=temperature,
+        )
 
     def create_agents(self):
         self.context_agent = Agent(
@@ -367,20 +384,38 @@ class Bots:
         )
 
     def create_crew(self, data) -> str:
-        self.crew = Crew(
-            agents=[self.context_agent, self.prompt_engineer, self.data_analyst, self.output_formatter],
-            tasks=[self.interpret_task, self.prompt_task, self.analyze_task, self.format_task],
-            process=Process.sequential,
-            verbose=True,
-            memory=False,
-        )
-        result = self.crew.kickoff(inputs={"data": data})
+        max_rotations = max(len(_FAST_MODELS), len(_SMART_MODELS))
 
-        # Best case: pydantic model validated successfully
-        if hasattr(result, "pydantic") and result.pydantic is not None:
-            return result.pydantic.model_dump_json()
+        for attempt in range(max_rotations):
+            # Rebuild agents and tasks with current model indices so rotations take effect
+            self.create_agents()
+            self.create_tasks()
 
-        # Use raw output — .raw is explicit, str() is a fallback
-        raw = result.raw if hasattr(result, "raw") else str(result)
+            crew = Crew(
+                agents=[self.context_agent, self.prompt_engineer, self.data_analyst, self.output_formatter],
+                tasks=[self.interpret_task, self.prompt_task, self.analyze_task, self.format_task],
+                process=Process.sequential,
+                verbose=True,
+                memory=False,
+            )
+            try:
+                result = crew.kickoff(inputs={"data": data})
+            except Exception as e:
+                if "429" in str(e) and attempt < max_rotations - 1:
+                    self._fast_idx += 1
+                    self._smart_idx += 1
+                    fast_model = _FAST_MODELS[self._fast_idx % len(_FAST_MODELS)]
+                    smart_model = _SMART_MODELS[self._smart_idx % len(_SMART_MODELS)]
+                    print(f"[ROTATE] 429 on attempt {attempt + 1}, switching to fast={fast_model} smart={smart_model}")
+                    _time.sleep(2)
+                    continue
+                raise
 
-        return _extract_json(raw)
+            # Best case: pydantic model validated successfully
+            if hasattr(result, "pydantic") and result.pydantic is not None:
+                return result.pydantic.model_dump_json()
+
+            raw = result.raw if hasattr(result, "raw") else str(result)
+            return _extract_json(raw)
+
+        raise RuntimeError("All model rotation attempts exhausted")
