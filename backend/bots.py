@@ -12,15 +12,23 @@ import json as _json
 # Ordered by preference. On 429 the pipeline rotates to the next entry.
 # Each uses a different upstream provider so one rate-limit rarely hits all.
 _FAST_MODELS = [
-    "openrouter/nvidia/nemotron-nano-9b-v2:free",             # NVIDIA
-    "openrouter/minimax/minimax-m2.5:free",                   # OpenInference
-    "openrouter/meta-llama/llama-3.1-8b-instruct:free",       # Meta/Lepton
-    "openrouter/mistralai/mistral-7b-instruct:free",          # Mistral
+    "openrouter/nvidia/nemotron-nano-9b-v2:free",                  # NVIDIA
+    "openrouter/minimax/minimax-m2.5:free",                        # OpenInference
+    "openrouter/meta-llama/llama-3.1-8b-instruct:free",            # Meta/Lepton
+    "openrouter/mistralai/mistral-7b-instruct:free",               # Mistral
+    "openrouter/google/gemma-3-12b-it:free",                       # Google
+    "openrouter/qwen/qwen3-8b:free",                               # Qwen small
+    "openrouter/meta-llama/llama-4-scout:free",                    # Meta Llama 4
+    "openrouter/microsoft/phi-3-mini-128k-instruct:free",          # Microsoft
 ]
 _SMART_MODELS = [
-    "openrouter/google/gemma-3-27b-it:free",                   # Google — most reliable
-    "openrouter/qwen/qwen3-coder:free",                        # Qwen — good but Venice rate-limits
-    "openrouter/meta-llama/llama-3.3-70b-instruct:free",       # Meta — fallback
+    "openrouter/google/gemma-3-27b-it:free",                       # Google — most reliable
+    "openrouter/qwen/qwen3-coder:free",                            # Qwen — Venice rate-limits
+    "openrouter/meta-llama/llama-3.3-70b-instruct:free",           # Meta
+    "openrouter/deepseek/deepseek-chat-v3-0324:free",              # DeepSeek
+    "openrouter/meta-llama/llama-4-maverick:free",                 # Meta Llama 4
+    "openrouter/mistralai/mistral-small-3.1-24b-instruct:free",    # Mistral
+    "openrouter/google/gemma-3-12b-it:free",                       # Google smaller
 ]
 
 
