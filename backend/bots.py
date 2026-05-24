@@ -18,9 +18,9 @@ _FAST_MODELS = [
     "openrouter/meta-llama/llama-3.3-70b-instruct:free",      # Venice (last resort)
 ]
 _SMART_MODELS = [
-    "openrouter/nousresearch/hermes-3-llama-3.1-405b:free",   # Nous
-    "openrouter/qwen/qwen3-coder:free",                        # Qwen
-    "openrouter/nvidia/llama-3.1-nemotron-ultra-253b-v1:free", # NVIDIA large
+    "openrouter/qwen/qwen3-coder:free",                        # Qwen — tool use supported
+    "openrouter/google/gemma-3-27b-it:free",                   # Google — tool use supported
+    "openrouter/meta-llama/llama-3.3-70b-instruct:free",       # Venice — tool use supported
 ]
 
 
@@ -402,7 +402,7 @@ class Bots:
                 result = crew.kickoff(inputs={"data": data})
             except Exception as e:
                 err_str = str(e)
-                if any(code in err_str for code in ("429", "402", "503", "529")) and attempt < max_rotations - 1:
+                if any(code in err_str for code in ("429", "402", "404", "503", "529")) and attempt < max_rotations - 1:
                     self._fast_idx += 1
                     self._smart_idx += 1
                     fast_model = _FAST_MODELS[self._fast_idx % len(_FAST_MODELS)]
