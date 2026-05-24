@@ -49,6 +49,7 @@ function timeAgo(ts) {
 
 function getLogClass(line) {
   const l = line.toLowerCase()
+  if (l.startsWith('[rotate]') || l.startsWith('[retry]')) return 'log-rotate'
   if (l.startsWith('[error]') || l.includes('traceback') || l.includes('exception')) return 'log-error'
   if (l.includes('warning') || l.includes('warn')) return 'log-warn'
   if (detectAgentIndex(line) !== -1 && (l.includes('agent:') || l.includes('# agent') || l.includes('working agent'))) return 'log-agent-header'
@@ -388,9 +389,13 @@ export default function App() {
   const parsed = result ? parseResult(result) : null
   const hasChart = parsed?.type === 'structured' && parsed.data?.output_type === 'chart' && parsed.data?.data_points?.length > 0
 
-  async function handleAnalyze() {
+  async function handleAnalyze(isAutoRetry = false) {
     if (!context.trim() || status === 'running') return
-    setLogs([]); setResult(null); setActiveTab('logs'); setStatus('running'); setShowLog(true)
+    if (isAutoRetry) {
+      setLogs(prev => [...prev, '[RETRY]  All providers rate-limited. Auto-retrying in 10s…'])
+      await new Promise(r => setTimeout(r, 10000))
+    }
+    setLogs(isAutoRetry ? (prev => [...prev]) : []); setResult(null); setActiveTab('logs'); setStatus('running'); setShowLog(true)
 
     const form = new FormData()
     form.append('context', context)
@@ -398,13 +403,14 @@ export default function App() {
 
     const controller = new AbortController()
     abortRef.current = controller
+    let gotResult = false
 
     try {
       const res = await fetch(`${API}/analyze`, { method: 'POST', body: form, signal: controller.signal })
       if (!res.ok) {
         let msg = `Server returned ${res.status}`
         try { const j = await res.json(); if (j.error) msg = j.error } catch {}
-        setLogs([`[ERROR] ${msg}`]); setStatus('error'); return
+        setLogs(prev => [...prev, `[ERROR] ${msg}`]); setStatus('error'); return
       }
 
       const reader = res.body.getReader()
@@ -420,8 +426,16 @@ export default function App() {
           if (!raw.startsWith('data: ')) continue
           let payload
           try { payload = JSON.parse(raw.slice(6)) } catch { continue }
-          if (payload === '__DONE__') { setStatus('done'); return }
-          if (payload?.type === 'result') { setResult(payload.content) }
+          if (payload === '__DONE__') {
+            if (!gotResult && !isAutoRetry) {
+              // All rotations exhausted — auto-retry once
+              handleAnalyze(true)
+            } else {
+              setStatus(gotResult ? 'done' : 'error')
+            }
+            return
+          }
+          if (payload?.type === 'result') { gotResult = true; setResult(payload.content) }
           else { setLogs(prev => [...prev, payload]) }
         }
       }

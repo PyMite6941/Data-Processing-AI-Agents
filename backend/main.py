@@ -130,6 +130,17 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
         thread = threading.Thread(target=run_crew, daemon=True)
         thread.start()
 
+        # CrewAI internal noise that clutters the stream during rotation/retry.
+        # We surface our own [ROTATE] / [RETRY] lines instead.
+        _NOISE = (
+            "ERROR:root:",
+            "ERROR:crewai.",
+            "[CrewAIEventsBus]",
+            "An unknown error occurred. Please check",
+            "Error details: Error code:",
+            "Error details: Model ",
+        )
+
         loop = asyncio.get_running_loop()
         deadline = time.monotonic() + MAX_RUNTIME
 
@@ -148,6 +159,10 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
             except queue.Empty:
                 # Heartbeat keeps Cloudflare proxy from closing idle connection
                 yield ": ping\n\n"
+                continue
+
+            # Drop internal CrewAI error noise during rotation; keep our own messages
+            if isinstance(item, str) and any(item.startswith(p) or p in item for p in _NOISE):
                 continue
 
             if item is None:
