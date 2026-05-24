@@ -139,6 +139,18 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
             "An unknown error occurred. Please check",
             "Error details: Error code:",
             "Error details: Model ",
+            # Box-drawing characters from CrewAI's verbose panel output
+            "╭─", "╰─", "│", "╞═", "╡",
+            # CrewAI event ordering warnings
+            "'agent_execution_started'",
+            "Tracing Preference Saved",
+            "Tracing has been disabled",
+            "Your preference has been saved",
+            "To enable tracing later",
+            "Set tracing=True",
+            "Set CREWAI_TRACING_ENABLED",
+            "Run: crewai traces",
+            "[Finalize]",
         )
 
         loop = asyncio.get_running_loop()

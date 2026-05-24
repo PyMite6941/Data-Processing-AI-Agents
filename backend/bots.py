@@ -18,9 +18,9 @@ _FAST_MODELS = [
     "openrouter/mistralai/mistral-7b-instruct:free",          # Mistral
 ]
 _SMART_MODELS = [
-    "openrouter/qwen/qwen3-coder:free",                        # Qwen — tool use supported
-    "openrouter/google/gemma-3-27b-it:free",                   # Google — tool use supported
-    "openrouter/meta-llama/llama-3.3-70b-instruct:free",       # Meta — tool use supported
+    "openrouter/google/gemma-3-27b-it:free",                   # Google — most reliable
+    "openrouter/qwen/qwen3-coder:free",                        # Qwen — good but Venice rate-limits
+    "openrouter/meta-llama/llama-3.3-70b-instruct:free",       # Meta — fallback
 ]
 
 
