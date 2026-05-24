@@ -14,13 +14,13 @@ import json as _json
 _FAST_MODELS = [
     "openrouter/nvidia/nemotron-nano-9b-v2:free",             # NVIDIA
     "openrouter/minimax/minimax-m2.5:free",                   # OpenInference
-    "openrouter/qwen/qwen3-14b:free",                         # Qwen
-    "openrouter/microsoft/phi-4-reasoning-plus:free",         # Microsoft
+    "openrouter/meta-llama/llama-3.1-8b-instruct:free",       # Meta/Lepton
+    "openrouter/mistralai/mistral-7b-instruct:free",          # Mistral
 ]
 _SMART_MODELS = [
     "openrouter/qwen/qwen3-coder:free",                        # Qwen — tool use supported
     "openrouter/google/gemma-3-27b-it:free",                   # Google — tool use supported
-    "openrouter/microsoft/phi-4-reasoning-plus:free",          # Microsoft — tool use supported
+    "openrouter/meta-llama/llama-3.3-70b-instruct:free",       # Meta — tool use supported
 ]
 
 
