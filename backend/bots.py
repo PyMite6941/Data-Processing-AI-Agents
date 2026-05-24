@@ -14,14 +14,20 @@ import json as _json
 _FAST_MODELS = [
     "openrouter/nvidia/nemotron-nano-9b-v2:free",             # NVIDIA
     "openrouter/minimax/minimax-m2.5:free",                   # OpenInference
-    "openrouter/qwen/qwen3-30b-a3b:free",                     # Qwen
-    "openrouter/meta-llama/llama-3.3-70b-instruct:free",      # Venice (last resort)
+    "openrouter/qwen/qwen3-14b:free",                         # Qwen
+    "openrouter/microsoft/phi-4-reasoning-plus:free",         # Microsoft
 ]
 _SMART_MODELS = [
     "openrouter/qwen/qwen3-coder:free",                        # Qwen — tool use supported
     "openrouter/google/gemma-3-27b-it:free",                   # Google — tool use supported
-    "openrouter/meta-llama/llama-3.3-70b-instruct:free",       # Venice — tool use supported
+    "openrouter/microsoft/phi-4-reasoning-plus:free",          # Microsoft — tool use supported
 ]
+
+
+def _parse_retry_after(err_str: str) -> float:
+    """Extract retry_after_seconds from OpenRouter error string, default 35."""
+    m = _re.search(r"retry_after_seconds['\"\s:]+(\d+(?:\.\d+)?)", err_str)
+    return float(m.group(1)) + 5 if m else 35.0
 
 
 def _extract_json(text: str) -> str:
@@ -407,8 +413,10 @@ class Bots:
                     self._smart_idx += 1
                     fast_model = _FAST_MODELS[self._fast_idx % len(_FAST_MODELS)]
                     smart_model = _SMART_MODELS[self._smart_idx % len(_SMART_MODELS)]
-                    print(f"[ROTATE] Provider error on attempt {attempt + 1} ({err_str[:80]}), switching to fast={fast_model} smart={smart_model}")
-                    _time.sleep(2)
+                    sleep_s = 0.0 if "404" in err_str else _parse_retry_after(err_str)
+                    print(f"[ROTATE] Provider error on attempt {attempt + 1} ({err_str[:80]}), sleeping {sleep_s:.0f}s then switching to fast={fast_model} smart={smart_model}")
+                    if sleep_s > 0:
+                        _time.sleep(sleep_s)
                     continue
                 raise
 
