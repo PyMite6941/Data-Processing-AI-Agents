@@ -391,8 +391,12 @@ class Bots:
 
     def create_crew(self, data) -> str:
         max_rotations = max(len(_FAST_MODELS), len(_SMART_MODELS))
+        # Allow one sleep-and-retry per model pair before rotating.
+        # max_rotations rotations × 2 attempts each = total budget.
+        max_attempts = max_rotations * 2
+        _retried = False  # whether the current model pair has already been retried once
 
-        for attempt in range(max_rotations):
+        for attempt in range(max_attempts):
             # Rebuild agents and tasks with current model indices so rotations take effect
             self.create_agents()
             self.create_tasks()
@@ -408,13 +412,24 @@ class Bots:
                 result = crew.kickoff(inputs={"data": data})
             except Exception as e:
                 err_str = str(e)
-                if any(code in err_str for code in ("429", "402", "404", "503", "529")) and attempt < max_rotations - 1:
-                    self._fast_idx += 1
-                    self._smart_idx += 1
-                    fast_model = _FAST_MODELS[self._fast_idx % len(_FAST_MODELS)]
-                    smart_model = _SMART_MODELS[self._smart_idx % len(_SMART_MODELS)]
-                    sleep_s = 0.0 if "404" in err_str else _parse_retry_after(err_str)
-                    print(f"[ROTATE] Provider error on attempt {attempt + 1} ({err_str[:80]}), sleeping {sleep_s:.0f}s then switching to fast={fast_model} smart={smart_model}")
+                is_404 = "404" in err_str
+                is_transient = any(c in err_str for c in ("429", "402", "503", "529"))
+
+                if (is_transient or is_404) and attempt < max_attempts - 1:
+                    if is_404 or _retried:
+                        # Already retried once (or model doesn't exist): rotate now
+                        self._fast_idx += 1
+                        self._smart_idx += 1
+                        _retried = False
+                        fast_model = _FAST_MODELS[self._fast_idx % len(_FAST_MODELS)]
+                        smart_model = _SMART_MODELS[self._smart_idx % len(_SMART_MODELS)]
+                        sleep_s = 0.0 if is_404 else _parse_retry_after(err_str)
+                        print(f"[ROTATE] attempt {attempt + 1}: rotating to fast={fast_model} smart={smart_model}, sleeping {sleep_s:.0f}s")
+                    else:
+                        # First hit on this model pair: sleep and retry same model
+                        _retried = True
+                        sleep_s = _parse_retry_after(err_str)
+                        print(f"[RETRY]  attempt {attempt + 1}: rate-limited, sleeping {sleep_s:.0f}s then retrying same model")
                     if sleep_s > 0:
                         _time.sleep(sleep_s)
                     continue
