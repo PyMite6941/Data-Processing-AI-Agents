@@ -109,8 +109,6 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
                         data_path = tmp.name
 
                 bots = Bots(context)
-                bots.create_agents()
-                bots.create_tasks()
                 result = bots.create_crew(data_path or "")
                 if result:
                     q.put({"__result__": result})

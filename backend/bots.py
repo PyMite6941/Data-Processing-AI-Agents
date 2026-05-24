@@ -401,12 +401,13 @@ class Bots:
             try:
                 result = crew.kickoff(inputs={"data": data})
             except Exception as e:
-                if any(code in str(e) for code in ("429", "402", "503", "529")) and attempt < max_rotations - 1:
+                err_str = str(e)
+                if any(code in err_str for code in ("429", "402", "503", "529")) and attempt < max_rotations - 1:
                     self._fast_idx += 1
                     self._smart_idx += 1
                     fast_model = _FAST_MODELS[self._fast_idx % len(_FAST_MODELS)]
                     smart_model = _SMART_MODELS[self._smart_idx % len(_SMART_MODELS)]
-                    print(f"[ROTATE] 429 on attempt {attempt + 1}, switching to fast={fast_model} smart={smart_model}")
+                    print(f"[ROTATE] Provider error on attempt {attempt + 1} ({err_str[:80]}), switching to fast={fast_model} smart={smart_model}")
                     _time.sleep(2)
                     continue
                 raise
@@ -417,5 +418,3 @@ class Bots:
 
             raw = result.raw if hasattr(result, "raw") else str(result)
             return _extract_json(raw)
-
-        raise RuntimeError("All model rotation attempts exhausted")
