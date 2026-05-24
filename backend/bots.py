@@ -12,15 +12,15 @@ import json as _json
 # Ordered by preference. On 429 the pipeline rotates to the next entry.
 # Each uses a different upstream provider so one rate-limit rarely hits all.
 _FAST_MODELS = [
-    "openrouter/deepseek/deepseek-v4-flash:free",       # DeepSeek-hosted
-    "openrouter/minimax/minimax-m2.5:free",              # MiniMax-hosted
-    "openrouter/z-ai/glm-4.5-air:free",                  # Z.ai-hosted
-    "openrouter/meta-llama/llama-3.3-70b-instruct:free", # Venice (last resort)
+    "openrouter/nvidia/nemotron-nano-9b-v2:free",             # NVIDIA
+    "openrouter/minimax/minimax-m2.5:free",                   # OpenInference
+    "openrouter/qwen/qwen3-30b-a3b:free",                     # Qwen
+    "openrouter/meta-llama/llama-3.3-70b-instruct:free",      # Venice (last resort)
 ]
 _SMART_MODELS = [
-    "openrouter/nousresearch/hermes-3-llama-3.1-405b:free", # Nous-hosted
-    "openrouter/qwen/qwen3-coder:free",                      # Qwen-hosted
-    "openrouter/deepseek/deepseek-v4-flash:free",            # DeepSeek fallback
+    "openrouter/nousresearch/hermes-3-llama-3.1-405b:free",   # Nous
+    "openrouter/qwen/qwen3-coder:free",                        # Qwen
+    "openrouter/nvidia/llama-3.1-nemotron-ultra-253b-v1:free", # NVIDIA large
 ]
 
 
