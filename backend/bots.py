@@ -166,7 +166,7 @@ class Bots:
             model=_SMART_MODELS[self._smart_idx % len(_SMART_MODELS)],
             api_key=self._key,
             max_tokens=4096,
-            max_retries=1,
+            max_retries=0,
             timeout=120,
             temperature=temperature,
         )
@@ -176,7 +176,7 @@ class Bots:
             model=_FAST_MODELS[self._fast_idx % len(_FAST_MODELS)],
             api_key=self._key,
             max_tokens=2048,
-            max_retries=1,
+            max_retries=0,
             timeout=120,
             temperature=temperature,
         )
