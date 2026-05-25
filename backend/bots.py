@@ -9,9 +9,15 @@ import re as _re
 import json as _json
 
 # ── Model rotation pools ──────────────────────────────────────────────────────
-# Ordered by preference. On 429 the pipeline rotates to the next entry.
-# Each uses a different upstream provider so one rate-limit rarely hits all.
+# Tier 1 (Groq / Gemini): genuinely free, generous daily limits, fast.
+# Tier 2 (OpenRouter :free): shared global rate limits — used as fallback.
 _FAST_MODELS = [
+    # ── Tier 1 ────────────────────────────────────────────────────────────────
+    "groq/llama-3.1-8b-instant",                                   # Groq — very fast
+    "groq/gemma2-9b-it",                                           # Groq — Google/Groq
+    "groq/llama-3.2-3b-preview",                                   # Groq — tiny, quick
+    "gemini/gemini-2.0-flash-lite",                                # Gemini — high quota
+    # ── Tier 2 fallback ───────────────────────────────────────────────────────
     "openrouter/nvidia/nemotron-nano-9b-v2:free",                  # NVIDIA
     "openrouter/minimax/minimax-m2.5:free",                        # OpenInference
     "openrouter/meta-llama/llama-3.1-8b-instruct:free",            # Meta/Lepton
@@ -22,7 +28,13 @@ _FAST_MODELS = [
     "openrouter/microsoft/phi-3-mini-128k-instruct:free",          # Microsoft
 ]
 _SMART_MODELS = [
-    "openrouter/google/gemma-3-27b-it:free",                       # Google — most reliable
+    # ── Tier 1 ────────────────────────────────────────────────────────────────
+    "groq/llama-3.3-70b-versatile",                                # Groq — strong tool use
+    "groq/llama-3.1-70b-versatile",                                # Groq — fallback 70b
+    "gemini/gemini-2.0-flash",                                     # Gemini — tool use ✓
+    "gemini/gemini-1.5-flash",                                     # Gemini — fallback
+    # ── Tier 2 fallback ───────────────────────────────────────────────────────
+    "openrouter/google/gemma-3-27b-it:free",                       # Google
     "openrouter/qwen/qwen3-coder:free",                            # Qwen — Venice rate-limits
     "openrouter/meta-llama/llama-3.3-70b-instruct:free",           # Meta
     "openrouter/deepseek/deepseek-chat-v3-0324:free",              # DeepSeek
@@ -91,12 +103,21 @@ def _extract_json(text: str) -> str:
     return text
 
 
-# LiteLLM (used internally by CrewAI) falls back to OPENAI_API_KEY for some
-# internal calls (token counting, fallback routing). Mirror the OpenRouter key
-# so those paths never fail trying to call OpenAI.
+# LiteLLM reads provider keys from environment automatically for known prefixes.
+# Mirror the OpenRouter key to OPENAI_API_KEY so LiteLLM internal paths that
+# fall back to OpenAI don't error when no OpenAI key is set.
 _OR_KEY = os.getenv("OPENROUTER_API_KEY", "")
 if _OR_KEY:
     os.environ.setdefault("OPENAI_API_KEY", _OR_KEY)
+
+
+def _api_key_for(model: str) -> str | None:
+    """Return the correct API key for a given model string."""
+    if model.startswith("groq/"):
+        return os.getenv("GROQ_API_KEY")
+    if model.startswith("gemini/"):
+        return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    return os.getenv("OPENROUTER_API_KEY")  # openrouter/* and anything else
 
 
 # ── Output schemas ────────────────────────────────────────────────────────────
@@ -159,7 +180,6 @@ class Bots:
         # Escape braces so CrewAI's .format() interpolation doesn't treat user
         # text like "{something}" as a template variable and raise KeyError.
         self._ctx = context.replace("{", "{{").replace("}", "}}")
-        self._key = os.getenv("OPENROUTER_API_KEY")
         self._fast_idx = 0
         self._smart_idx = 0
         self.file_read = FileReadTool()
@@ -170,9 +190,10 @@ class Bots:
         self.txt_search = TXTSearchTool()
 
     def _smart_llm(self, temperature: float) -> LLM:
+        model = _SMART_MODELS[self._smart_idx % len(_SMART_MODELS)]
         return LLM(
-            model=_SMART_MODELS[self._smart_idx % len(_SMART_MODELS)],
-            api_key=self._key,
+            model=model,
+            api_key=_api_key_for(model),
             max_tokens=4096,
             max_retries=0,
             timeout=120,
@@ -180,9 +201,10 @@ class Bots:
         )
 
     def _fast_llm(self, temperature: float) -> LLM:
+        model = _FAST_MODELS[self._fast_idx % len(_FAST_MODELS)]
         return LLM(
-            model=_FAST_MODELS[self._fast_idx % len(_FAST_MODELS)],
-            api_key=self._key,
+            model=model,
+            api_key=_api_key_for(model),
             max_tokens=2048,
             max_retries=0,
             timeout=120,
