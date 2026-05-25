@@ -12,12 +12,11 @@ import json as _json
 # Tier 1 (Groq / Gemini): genuinely free, generous daily limits, fast.
 # Tier 2 (OpenRouter :free): shared global rate limits — used as fallback.
 _FAST_MODELS = [
-    # ── Tier 1 ────────────────────────────────────────────────────────────────
-    "groq/llama-3.1-8b-instant",                                   # Groq — very fast
-    "groq/gemma2-9b-it",                                           # Groq — Google/Groq
+    # ── Tier 1: Groq (14,400 req/day free, very fast) ─────────────────────────
+    "groq/llama-3.1-8b-instant",                                   # Groq
+    "groq/gemma2-9b-it",                                           # Groq
     "groq/llama-3.2-3b-preview",                                   # Groq — tiny, quick
-    "gemini/gemini-2.0-flash-lite",                                # Gemini — high quota
-    # ── Tier 2 fallback ───────────────────────────────────────────────────────
+    # ── Tier 2: OpenRouter free fallback ──────────────────────────────────────
     "openrouter/nvidia/nemotron-nano-9b-v2:free",                  # NVIDIA
     "openrouter/minimax/minimax-m2.5:free",                        # OpenInference
     "openrouter/meta-llama/llama-3.1-8b-instruct:free",            # Meta/Lepton
@@ -28,14 +27,12 @@ _FAST_MODELS = [
     "openrouter/microsoft/phi-3-mini-128k-instruct:free",          # Microsoft
 ]
 _SMART_MODELS = [
-    # ── Tier 1 ────────────────────────────────────────────────────────────────
-    "groq/llama-3.3-70b-versatile",                                # Groq — strong tool use
+    # ── Tier 1: Groq (14,400 req/day free, tool use supported) ───────────────
+    "groq/llama-3.3-70b-versatile",                                # Groq — best tool use
     "groq/llama-3.1-70b-versatile",                                # Groq — fallback 70b
-    "gemini/gemini-2.0-flash",                                     # Gemini — tool use ✓
-    "gemini/gemini-1.5-flash",                                     # Gemini — fallback
-    # ── Tier 2 fallback ───────────────────────────────────────────────────────
+    # ── Tier 2: OpenRouter free fallback ──────────────────────────────────────
     "openrouter/google/gemma-3-27b-it:free",                       # Google
-    "openrouter/qwen/qwen3-coder:free",                            # Qwen — Venice rate-limits
+    "openrouter/qwen/qwen3-coder:free",                            # Qwen
     "openrouter/meta-llama/llama-3.3-70b-instruct:free",           # Meta
     "openrouter/deepseek/deepseek-chat-v3-0324:free",              # DeepSeek
     "openrouter/meta-llama/llama-4-maverick:free",                 # Meta Llama 4
@@ -115,9 +112,7 @@ def _api_key_for(model: str) -> str | None:
     """Return the correct API key for a given model string."""
     if model.startswith("groq/"):
         return os.getenv("GROQ_API_KEY")
-    if model.startswith("gemini/"):
-        return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    return os.getenv("OPENROUTER_API_KEY")  # openrouter/* and anything else
+    return os.getenv("OPENROUTER_API_KEY")
 
 
 # ── Output schemas ────────────────────────────────────────────────────────────
