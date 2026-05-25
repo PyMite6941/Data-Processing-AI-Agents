@@ -2,6 +2,7 @@ from crewai import Agent, Crew, Task, Process, LLM
 from crewai_tools import FileReadTool, CSVSearchTool, JSONSearchTool, PDFSearchTool, XMLSearchTool, TXTSearchTool
 import os
 import time as _time
+from threading import Lock
 from typing import Optional, Literal
 from pydantic import BaseModel
 
@@ -42,6 +43,53 @@ _SMART_MODELS = [
     "openrouter/mistralai/mistral-small-3.1-24b-instruct:free",    # Mistral
     "openrouter/google/gemma-3-12b-it:free",                       # Google smaller
 ]
+
+
+# ── Module-level cooldown state (persists across requests) ───────────────────
+# Groq models share one org-wide TPM quota — rate-limiting one limits all.
+_GROQ_MODELS_ALL: frozenset = frozenset(
+    m for m in _FAST_MODELS + _SMART_MODELS if m.startswith("groq/")
+)
+_cooldown: dict[str, float] = {}   # model → monotonic timestamp when available again
+_cooldown_lock = Lock()
+
+
+def _set_cooldown(model: str, seconds: float) -> None:
+    """Mark model unavailable. Groq models cool together (shared org TPM quota)."""
+    until = _time.monotonic() + seconds
+    with _cooldown_lock:
+        if model.startswith("groq/"):
+            for m in _GROQ_MODELS_ALL:
+                _cooldown[m] = max(_cooldown.get(m, 0.0), until)
+        else:
+            _cooldown[model] = max(_cooldown.get(model, 0.0), until)
+
+
+def _pick_model(pool: list[str], start_idx: int) -> tuple[str, int]:
+    """Return the highest-priority available model (lowest index not in cooldown).
+    Falls back to the soonest-available model if all are still cooling."""
+    now = _time.monotonic()
+    with _cooldown_lock:
+        for offset in range(len(pool)):
+            idx = (start_idx + offset) % len(pool)
+            if _cooldown.get(pool[idx], 0.0) <= now:
+                return pool[idx], idx
+        # All cooling — pick the one with the shortest remaining wait
+        best = min(range(len(pool)), key=lambda o: _cooldown.get(pool[(start_idx + o) % len(pool)], 0.0))
+        idx = (start_idx + best) % len(pool)
+        return pool[idx], idx
+
+
+def _wait_until_available() -> None:
+    """Sleep until at least one model in each pool is ready. No-op if already ready."""
+    now = _time.monotonic()
+    with _cooldown_lock:
+        fast_waits = [max(0.0, _cooldown.get(m, 0.0) - now) for m in _FAST_MODELS]
+        smart_waits = [max(0.0, _cooldown.get(m, 0.0) - now) for m in _SMART_MODELS]
+    sleep_s = max(min(fast_waits), min(smart_waits))
+    if sleep_s > 0:
+        print(f"[WAIT] All providers cooling — resuming in {sleep_s:.0f}s")
+        _time.sleep(sleep_s)
 
 
 def _parse_retry_after(err_str: str) -> float:
@@ -428,14 +476,15 @@ class Bots:
         )
 
     def create_crew(self, data) -> str:
-        max_rotations = max(len(_FAST_MODELS), len(_SMART_MODELS))
-        # Allow one sleep-and-retry per model pair before rotating.
-        # max_rotations rotations × 2 attempts each = total budget.
-        max_attempts = max_rotations * 2
-        _retried = False  # whether the current model pair has already been retried once
+        max_attempts = (len(_FAST_MODELS) + len(_SMART_MODELS)) * 2
 
         for attempt in range(max_attempts):
-            # Rebuild agents and tasks with current model indices so rotations take effect
+            # Always pick the highest-priority model not currently in cooldown.
+            # Groq sits at index 0 in both pools and is chosen first whenever its
+            # org-level TPM quota has refilled (cooldown expired).
+            fast_model, self._fast_idx = _pick_model(_FAST_MODELS, self._fast_idx)
+            smart_model, self._smart_idx = _pick_model(_SMART_MODELS, self._smart_idx)
+
             self.create_agents()
             self.create_tasks()
 
@@ -451,29 +500,32 @@ class Bots:
             except Exception as e:
                 err_str = str(e)
                 is_404 = "404" in err_str
-                # 401 included so a bad/missing key on one provider rotates to the next.
-                # BadRequestError/400 included for provider-rejected params (unsupported
-                # features like json_schema, cache_breakpoint, etc.) that only affect
-                # specific models — rotating to another model/provider often resolves them.
-                is_transient = any(c in err_str for c in ("429", "402", "401", "503", "529", "BadRequestError", "invalid_request_error"))
+                is_rate_limit = "429" in err_str
+                is_bad_request = any(x in err_str for x in ("BadRequestError", "invalid_request_error"))
+                is_server_err = any(c in err_str for c in ("402", "401", "503", "529"))
+                is_rotatable = is_404 or is_rate_limit or is_bad_request or is_server_err
 
-                if (is_transient or is_404) and attempt < max_attempts - 1:
-                    if is_404 or _retried:
-                        # Already retried once (or model doesn't exist): rotate now
-                        self._fast_idx += 1
-                        self._smart_idx += 1
-                        _retried = False
-                        fast_model = _FAST_MODELS[self._fast_idx % len(_FAST_MODELS)]
-                        smart_model = _SMART_MODELS[self._smart_idx % len(_SMART_MODELS)]
-                        sleep_s = 0.0 if is_404 else _parse_retry_after(err_str)
-                        print(f"[ROTATE] attempt {attempt + 1}: rotating to fast={fast_model} smart={smart_model}, sleeping {sleep_s:.0f}s")
+                if is_rotatable and attempt < max_attempts - 1:
+                    if is_rate_limit:
+                        cooldown_s = _parse_retry_after(err_str)
+                        _set_cooldown(fast_model, cooldown_s)
+                        _set_cooldown(smart_model, cooldown_s)
+                        print(f"[RATE-LIMIT] fast={fast_model} smart={smart_model} → {cooldown_s:.0f}s cooldown")
+                    elif is_404 or is_bad_request:
+                        _set_cooldown(fast_model, 600)
+                        _set_cooldown(smart_model, 600)
+                        print(f"[ROTATE] fast={fast_model} smart={smart_model} → unavailable, 10-min cooldown")
                     else:
-                        # First hit on this model pair: sleep and retry same model
-                        _retried = True
-                        sleep_s = _parse_retry_after(err_str)
-                        print(f"[RETRY]  attempt {attempt + 1}: rate-limited, sleeping {sleep_s:.0f}s then retrying same model")
-                    if sleep_s > 0:
-                        _time.sleep(sleep_s)
+                        _set_cooldown(fast_model, 60)
+                        _set_cooldown(smart_model, 60)
+                        print(f"[SERVER-ERR] fast={fast_model} smart={smart_model} → 60s cooldown")
+
+                    # If every model in both pools is still cooling, sleep until ready
+                    _wait_until_available()
+
+                    # Advance past the just-failed models so _pick_model tries next first
+                    self._fast_idx = (self._fast_idx + 1) % len(_FAST_MODELS)
+                    self._smart_idx = (self._smart_idx + 1) % len(_SMART_MODELS)
                     continue
                 raise
 
