@@ -210,7 +210,7 @@ class Bots:
         return LLM(
             model=model,
             api_key=_api_key_for(model),
-            max_tokens=2048,
+            max_tokens=1024,
             max_retries=0,
             timeout=120,
             temperature=temperature,

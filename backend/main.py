@@ -151,6 +151,12 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
             "Set CREWAI_TRACING_ENABLED",
             "Run: crewai traces",
             "[Finalize]",
+            "[TRACE]",
+            "✨ Update Available",
+            "collect traces.",
+            "New version of crewai",
+            "Run `pip install",
+            "pip install --upgrade",
         )
 
         loop = asyncio.get_running_loop()
