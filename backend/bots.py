@@ -1,5 +1,5 @@
 from crewai import Agent, Crew, Task, Process, LLM
-from crewai_tools import FileReadTool, CSVSearchTool, JSONSearchTool, PDFSearchTool, XMLSearchTool, TXTSearchTool
+from crewai_tools import FileReadTool
 import os
 import time as _time
 from threading import Lock
@@ -259,11 +259,6 @@ class Bots:
         self._fast_idx = 0
         self._smart_idx = 0
         self.file_read = FileReadTool()
-        self.csv_search = CSVSearchTool()
-        self.json_search = JSONSearchTool()
-        self.pdf_search = PDFSearchTool()
-        self.xml_search = XMLSearchTool()
-        self.txt_search = TXTSearchTool()
 
     def _smart_llm(self, temperature: float) -> LLM:
         model = _SMART_MODELS[self._smart_idx % len(_SMART_MODELS)]
@@ -344,20 +339,11 @@ class Bots:
             ),
             backstory=(
                 "You are a rigorous data analyst with experience across many domains and file formats. "
-                "You always select the right tool for the file type: CSVSearchTool for .csv, "
-                "JSONSearchTool for .json, PDFSearchTool for .pdf, XMLSearchTool for .xml, "
-                "TXTSearchTool for .txt, and FileReadTool for any other file type. "
+                "You use FileReadTool to read any file provided, then reason over its contents directly. "
                 "When no file is provided, you provide a thorough analytical response based on "
                 "the context and analysis prompt. You back every finding with evidence."
             ),
-            tools=[
-                self.file_read,
-                self.csv_search,
-                self.json_search,
-                self.pdf_search,
-                self.xml_search,
-                self.txt_search,
-            ],
+            tools=[self.file_read],
             verbose=True,
             memory=False,
             llm=self._smart_llm(0.1),
@@ -440,13 +426,7 @@ class Bots:
             description=(
                 "You have been given a step-by-step analysis prompt from the previous task.\n\n"
                 "Dataset path: {data}\n\n"
-                "If {data} is not empty, check the file extension and use the correct tool:\n"
-                "- .csv  → CSVSearchTool\n"
-                "- .json → JSONSearchTool\n"
-                "- .pdf  → PDFSearchTool\n"
-                "- .xml  → XMLSearchTool\n"
-                "- .txt  → TXTSearchTool\n"
-                "- anything else → FileReadTool\n\n"
+                "If {data} is not empty, use FileReadTool to read the file contents.\n\n"
                 "If {data} is empty, answer based on the analysis prompt using your knowledge "
                 "and reasoning — state clearly that no file was provided.\n\n"
                 "Follow every step in the prompt exactly. Report only what the data shows."
@@ -519,7 +499,7 @@ class Bots:
             except Exception as e:
                 err_str = str(e)
                 is_404 = "404" in err_str
-                is_rate_limit = "429" in err_str
+                is_rate_limit = any(x in err_str for x in ("429", "RateLimitError", "rate_limit_exceeded"))
                 is_bad_request = any(x in err_str for x in ("BadRequestError", "invalid_request_error"))
                 is_server_err = any(c in err_str for c in ("402", "401", "503", "529"))
                 is_rotatable = is_404 or is_rate_limit or is_bad_request or is_server_err
