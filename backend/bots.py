@@ -262,10 +262,12 @@ class Bots:
 
     def _smart_llm(self, temperature: float) -> LLM:
         model = _SMART_MODELS[self._smart_idx % len(_SMART_MODELS)]
+        # 1024 keeps total TPM per call under Groq's 12000/min limit when
+        # input is large (file contents + long prompt chain).
         return LLM(
             model=model,
             api_key=_api_key_for(model),
-            max_tokens=4096,
+            max_tokens=1024,
             max_retries=0,
             timeout=120,
             temperature=temperature,

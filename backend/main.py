@@ -159,6 +159,7 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
             "pip install --upgrade",
             "All providers rate-limited",   # litellm internal retry message
             "Auto-retrying in",             # litellm internal retry message
+            "[RETRY]",                      # litellm router retry prefix
         )
 
         loop = asyncio.get_running_loop()
