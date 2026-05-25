@@ -26,6 +26,7 @@ app.add_middleware(
 )
 
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+BOX_CHARS  = re.compile(r"[╭╮╰╯│╞╡╢╟╔╗╚╝╬═─┼┤├┬┴┌└┐┘╠╣╦╧╨╩╪╫]")
 
 MAX_FILE_SIZE   = 10 * 1024 * 1024   # 10 MB
 MAX_CONTEXT_LEN = 2000               # chars
@@ -42,6 +43,7 @@ class LineCapture(io.TextIOBase):
 
     def write(self, text: str) -> int:
         cleaned = ANSI_ESCAPE.sub("", text)
+        cleaned = BOX_CHARS.sub("", cleaned)
         self._buf += cleaned
         while "\n" in self._buf:
             line, self._buf = self._buf.split("\n", 1)
@@ -139,9 +141,7 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
             "An unknown error occurred. Please check",
             "Error details: Error code:",
             "Error details: Model ",
-            # Box-drawing characters from CrewAI's verbose panel output
-            "╭─", "╰─", "│", "╞═", "╡",
-            # CrewAI event ordering warnings
+            # CrewAI event ordering warnings (box chars are stripped in LineCapture)
             "'agent_execution_started'",
             "Tracing Preference Saved",
             "Tracing has been disabled",

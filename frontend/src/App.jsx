@@ -697,13 +697,17 @@ export default function App() {
 		parsed.data?.data_points?.length > 0;
 
 	async function handleAnalyze(isAutoRetry = false) {
-		if (!context.trim() || status === 'running') return;
+		if (!context.trim() || (status === 'running' && !isAutoRetry)) return;
+		const controller = new AbortController();
+		abortRef.current = controller;
+
 		if (isAutoRetry) {
 			setLogs((prev) => [
 				...prev,
 				'[RETRY]  All providers rate-limited. Auto-retrying in 10s…',
 			]);
 			await new Promise((r) => setTimeout(r, 10000));
+			if (controller.signal.aborted) return;
 		}
 		setLogs(isAutoRetry ? (prev) => [...prev] : []);
 		setResult(null);
@@ -714,9 +718,6 @@ export default function App() {
 		const form = new FormData();
 		form.append('context', context);
 		if (file) form.append('file', file);
-
-		const controller = new AbortController();
-		abortRef.current = controller;
 		let gotResult = false;
 
 		try {
