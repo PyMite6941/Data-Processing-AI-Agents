@@ -13,12 +13,14 @@ litellm.cache = None        # Disable response caching
 litellm.drop_params = True  # Silently drop unsupported params per provider
 
 # Groq rejects messages that contain a 'cache_breakpoint' property.
-# CrewAI's prompt-caching feature injects it into system message dicts before
-# calling litellm.completion — setting litellm.cache=None doesn't prevent this.
-# Patch litellm.completion to strip the field from every message at call time.
+# Two-layer fix:
+#  1. Force caching=False so litellm's client wrapper never injects cache_breakpoint
+#     into messages internally (happens when CrewAI passes caching=True in kwargs).
+#  2. Strip cache_breakpoint from any message that already has it (belt + suspenders).
 _real_completion = litellm.completion
 
 def _completion_no_cache_breakpoint(*args, **kwargs):
+    kwargs["caching"] = False   # prevents litellm wrapper from re-injecting cache_breakpoint
     for msg in kwargs.get("messages", []):
         if isinstance(msg, dict):
             msg.pop("cache_breakpoint", None)
