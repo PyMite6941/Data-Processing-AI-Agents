@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 import re as _re
 import json as _json
+import litellm
+litellm.cache = None  # Groq rejects litellm's cache_breakpoint injection
 
 # ── Model rotation pools ──────────────────────────────────────────────────────
 # Tier 1 (Groq): 14,400 req/day free, fast, tried first.
