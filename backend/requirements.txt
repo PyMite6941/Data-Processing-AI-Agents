@@ -4,3 +4,4 @@ python-dotenv
 crewai
 crewai-tools
 pydantic
+# build-v2
