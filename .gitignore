@@ -25,6 +25,7 @@ __pycache__/
 output.log
 *.tmp
 *.sq3
+*.zip
 
 # Editor directories and files
 .vscode/*

@@ -38,7 +38,7 @@ fi
 # shellcheck disable=SC1090
 source "$VENV_ACTIVATE"
 
-pip install --quiet --upgrade pip
+pip install --quiet --upgrade pip 2>/dev/null || true   # non-fatal on Windows
 pip install --quiet litellm
 pip install --quiet -r requirements.txt
 info "Backend dependencies installed."
