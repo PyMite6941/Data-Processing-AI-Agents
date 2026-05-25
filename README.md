@@ -13,6 +13,20 @@ This project was a learning process that I very much enjoyed so any support [lik
 
 Check out the license before use, this is my first MIT license in my account!
 
+## Running this project
+
+I don't recommend running this project yourself since it took me a bit to get everything worked out however if you want to set everything up use the setup.sh file to geth you started.
+
+Run it like this on Windows:
+`bash setup.sh`
+
+Or like this on MacOS/Linux:
+`chmod +x setup.sh `
+`./setup.sh `
+
+Then just run the frontend with this once in the frontend/ directory
+`npm run dev`
+
 ## Features
 
 This project only has three features, which make this whole project work.
@@ -45,7 +59,7 @@ This is a great project considering I'm currently studying for physics and preca
 
 ## What we learned
 
-I learned about CrewAI and I realized how much of a game changer it really is for me to use, it creates agents and manages the agentic workflow flawlessly except for my own errors and poor prompting that get thrown in.
+I learned about CrewAI and I realized how much of a game changer it really is for me to use, it creates agents and manages the agentic workflow flawlessly except for my own errors and poor prompting that get thrown in. I've started to implement CrewAI in my own repos more and especially repos that include AI Agents being used.
 
 ## What's next for Data Analyst
 
