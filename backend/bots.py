@@ -73,6 +73,10 @@ _GROQ_MODELS_ALL: frozenset = frozenset(
 _cooldown: dict[str, float] = {}   # model → monotonic timestamp when available again
 _cooldown_lock = Lock()
 
+# Serialize concurrent HTTP requests so they don't collide on shared Groq TPM.
+# Without this, two simultaneous requests each consume ~12000 TPM and both fail.
+_crew_lock = Lock()
+
 
 def _set_cooldown(model: str, seconds: float) -> None:
     """Mark model unavailable. Groq models cool together (shared org TPM quota)."""
@@ -334,20 +338,22 @@ class Bots:
         self.data_analyst = Agent(
             role="Senior Data Analyst",
             goal=(
-                "Follow the analysis prompt exactly. If a file path is provided, use the correct "
-                "tool for that file type and extract findings that directly answer the prompt. "
+                "Follow the analysis prompt exactly. If a file path is provided, call FileReadTool "
+                "ONCE to read the file, then reason over its contents to answer the prompt. "
                 "If no file is provided, reason from the context and prompt alone. "
                 "Never speculate beyond what the data or context shows."
             ),
             backstory=(
                 "You are a rigorous data analyst with experience across many domains and file formats. "
-                "You use FileReadTool to read any file provided, then reason over its contents directly. "
-                "When no file is provided, you provide a thorough analytical response based on "
-                "the context and analysis prompt. You back every finding with evidence."
+                "You call FileReadTool exactly once per task — re-reading the same file wastes tokens "
+                "and produces no new information. After reading, you reason directly over the content. "
+                "When no file is provided, you produce a thorough analytical response from context alone. "
+                "You back every finding with evidence from the data."
             ),
             tools=[self.file_read],
             verbose=True,
             memory=False,
+            max_iter=6,
             llm=self._smart_llm(0.1),
             allow_delegation=False,
             cache=False,
@@ -478,9 +484,19 @@ class Bots:
         )
 
     def create_crew(self, data) -> str:
+        # Hold the lock for the entire pipeline so a second concurrent request
+        # waits rather than hammering the same shared Groq TPM quota.
+        with _crew_lock:
+            return self._run_pipeline(data)
+
+    def _run_pipeline(self, data) -> str:
         max_attempts = (len(_FAST_MODELS) + len(_SMART_MODELS)) * 2
 
         for attempt in range(max_attempts):
+            # Wait BEFORE picking models — ensures cooldowns are honoured
+            # even on the very first attempt of a retry cycle.
+            _wait_until_available()
+
             # Scan from index 0 every time so Groq (index 0) is always preferred
             # when its cooldown has expired. Cooldowns handle skipping, not the index.
             fast_model, self._fast_idx = _pick_model(_FAST_MODELS)
@@ -521,10 +537,7 @@ class Bots:
                         _set_cooldown(smart_model, 60)
                         print(f"[SERVER-ERR] fast={fast_model} smart={smart_model} → 60s cooldown")
 
-                    # If every model in both pools is still cooling, sleep until ready.
-                    # Cooldowns already prevent re-picking failed models — no index advance needed.
-                    _wait_until_available()
-                    continue
+                    continue  # _wait_until_available() fires at the top of the next iteration
                 raise
 
             # Best case: pydantic model validated successfully
