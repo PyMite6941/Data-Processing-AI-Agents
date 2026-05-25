@@ -1,3 +1,12 @@
+---
+title: Data Analyst AI Agent
+emoji: 📊
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 Hello! This is my International AI Agents 2026 hackathon project.
 
 This project was a learning process that I very much enjoyed so any support [like following the repo] is much appreciated.
@@ -28,7 +37,7 @@ I used react vite JS for the frontend, a REST API connecting the frontend to the
 
 ## Challenges we ran into
 
-There were many challenges in this process including trying to run the frontend properly, LLM models kept returning errors despite me using the OpenRouter API properly, it was very difficult to make work. Also the testing phase took a while to load since the AI Agents thought deeply which is good however it made my job a bit long
+There were many challenges in this process including trying to run the frontend properly, LLM models kept returning errors despite me using the OpenRouter API properly, it was very difficult to make work. Also the testing phase took a while to load since the AI Agents thought deeply which is good however it made my job a bit long. However all of those issues seem so minor compared to the API keys that would max out so quickly while testing, I remember wondering if there was any time to pivot and create a different project.
 
 ## Accomplishments that we're proud of
 
