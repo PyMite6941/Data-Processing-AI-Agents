@@ -65,19 +65,19 @@ def _set_cooldown(model: str, seconds: float) -> None:
             _cooldown[model] = max(_cooldown.get(model, 0.0), until)
 
 
-def _pick_model(pool: list[str], start_idx: int) -> tuple[str, int]:
-    """Return the highest-priority available model (lowest index not in cooldown).
-    Falls back to the soonest-available model if all are still cooling."""
+def _pick_model(pool: list[str]) -> tuple[str, int]:
+    """Return (model, index) of the highest-priority model not in cooldown.
+    Always scans from index 0 so higher-priority models (Groq) are preferred
+    the moment their cooldown expires. Falls back to soonest-available if all
+    are still cooling."""
     now = _time.monotonic()
     with _cooldown_lock:
-        for offset in range(len(pool)):
-            idx = (start_idx + offset) % len(pool)
-            if _cooldown.get(pool[idx], 0.0) <= now:
-                return pool[idx], idx
-        # All cooling — pick the one with the shortest remaining wait
-        best = min(range(len(pool)), key=lambda o: _cooldown.get(pool[(start_idx + o) % len(pool)], 0.0))
-        idx = (start_idx + best) % len(pool)
-        return pool[idx], idx
+        for idx, model in enumerate(pool):
+            if _cooldown.get(model, 0.0) <= now:
+                return model, idx
+        # All cooling — return the one whose cooldown expires soonest
+        best = min(range(len(pool)), key=lambda i: _cooldown.get(pool[i], 0.0))
+        return pool[best], best
 
 
 def _wait_until_available() -> None:
@@ -479,11 +479,10 @@ class Bots:
         max_attempts = (len(_FAST_MODELS) + len(_SMART_MODELS)) * 2
 
         for attempt in range(max_attempts):
-            # Always pick the highest-priority model not currently in cooldown.
-            # Groq sits at index 0 in both pools and is chosen first whenever its
-            # org-level TPM quota has refilled (cooldown expired).
-            fast_model, self._fast_idx = _pick_model(_FAST_MODELS, self._fast_idx)
-            smart_model, self._smart_idx = _pick_model(_SMART_MODELS, self._smart_idx)
+            # Scan from index 0 every time so Groq (index 0) is always preferred
+            # when its cooldown has expired. Cooldowns handle skipping, not the index.
+            fast_model, self._fast_idx = _pick_model(_FAST_MODELS)
+            smart_model, self._smart_idx = _pick_model(_SMART_MODELS)
 
             self.create_agents()
             self.create_tasks()
@@ -520,12 +519,9 @@ class Bots:
                         _set_cooldown(smart_model, 60)
                         print(f"[SERVER-ERR] fast={fast_model} smart={smart_model} → 60s cooldown")
 
-                    # If every model in both pools is still cooling, sleep until ready
+                    # If every model in both pools is still cooling, sleep until ready.
+                    # Cooldowns already prevent re-picking failed models — no index advance needed.
                     _wait_until_available()
-
-                    # Advance past the just-failed models so _pick_model tries next first
-                    self._fast_idx = (self._fast_idx + 1) % len(_FAST_MODELS)
-                    self._smart_idx = (self._smart_idx + 1) % len(_SMART_MODELS)
                     continue
                 raise
 
