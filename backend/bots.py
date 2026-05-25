@@ -8,7 +8,8 @@ from pydantic import BaseModel
 import re as _re
 import json as _json
 import litellm
-litellm.cache = None  # Groq rejects litellm's cache_breakpoint injection
+litellm.cache = None        # Groq rejects litellm's cache_breakpoint injection
+litellm.drop_params = True  # Silently drop unsupported params per provider (seed, logprobs, etc.)
 
 # ── Model rotation pools ──────────────────────────────────────────────────────
 # Tier 1 (Groq): 14,400 req/day free, fast, tried first.
@@ -450,8 +451,11 @@ class Bots:
             except Exception as e:
                 err_str = str(e)
                 is_404 = "404" in err_str
-                # 401 included so a bad/missing key on one provider rotates to the next
-                is_transient = any(c in err_str for c in ("429", "402", "401", "503", "529"))
+                # 401 included so a bad/missing key on one provider rotates to the next.
+                # BadRequestError/400 included for provider-rejected params (unsupported
+                # features like json_schema, cache_breakpoint, etc.) that only affect
+                # specific models — rotating to another model/provider often resolves them.
+                is_transient = any(c in err_str for c in ("429", "402", "401", "503", "529", "BadRequestError", "invalid_request_error"))
 
                 if (is_transient or is_404) and attempt < max_attempts - 1:
                     if is_404 or _retried:
