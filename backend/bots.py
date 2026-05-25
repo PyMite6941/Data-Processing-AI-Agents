@@ -9,13 +9,13 @@ import re as _re
 import json as _json
 
 # ── Model rotation pools ──────────────────────────────────────────────────────
-# Tier 1 (Groq / Gemini): genuinely free, generous daily limits, fast.
-# Tier 2 (OpenRouter :free): shared global rate limits — used as fallback.
+# Tier 1 (Groq): 14,400 req/day free, fast, tried first.
+# Tier 2 (OpenRouter :free): shared global rate limits — deep fallback only.
 _FAST_MODELS = [
-    # ── Tier 1: Groq (14,400 req/day free, very fast) ─────────────────────────
-    "groq/llama-3.1-8b-instant",                                   # Groq
+    # ── Tier 1: Groq ──────────────────────────────────────────────────────────
+    "groq/llama-3.1-8b-instant",                                   # Groq — primary
     "groq/gemma2-9b-it",                                           # Groq
-    "groq/llama-3.2-3b-preview",                                   # Groq — tiny, quick
+    "groq/llama3-8b-8192",                                         # Groq — stable fallback
     # ── Tier 2: OpenRouter free fallback ──────────────────────────────────────
     "openrouter/nvidia/nemotron-nano-9b-v2:free",                  # NVIDIA
     "openrouter/minimax/minimax-m2.5:free",                        # OpenInference
@@ -27,9 +27,9 @@ _FAST_MODELS = [
     "openrouter/microsoft/phi-3-mini-128k-instruct:free",          # Microsoft
 ]
 _SMART_MODELS = [
-    # ── Tier 1: Groq (14,400 req/day free, tool use supported) ───────────────
+    # ── Tier 1: Groq ──────────────────────────────────────────────────────────
     "groq/llama-3.3-70b-versatile",                                # Groq — best tool use
-    "groq/llama-3.1-70b-versatile",                                # Groq — fallback 70b
+    "groq/llama3-70b-8192",                                        # Groq — stable 70b fallback
     # ── Tier 2: OpenRouter free fallback ──────────────────────────────────────
     "openrouter/google/gemma-3-27b-it:free",                       # Google
     "openrouter/qwen/qwen3-coder:free",                            # Qwen
@@ -42,9 +42,19 @@ _SMART_MODELS = [
 
 
 def _parse_retry_after(err_str: str) -> float:
-    """Extract retry_after_seconds from OpenRouter error string, default 35."""
+    """Extract retry delay from provider error string, default 35s.
+
+    Handles two formats:
+    - OpenRouter: retry_after_seconds: 30
+    - Groq:       Please try again in 2.3s.
+    """
     m = _re.search(r"retry_after_seconds['\"\s:]+(\d+(?:\.\d+)?)", err_str)
-    return float(m.group(1)) + 5 if m else 35.0
+    if m:
+        return float(m.group(1)) + 5
+    m = _re.search(r"[Pp]lease try again in (\d+(?:\.\d+)?)s", err_str)
+    if m:
+        return float(m.group(1)) + 2
+    return 35.0
 
 
 def _extract_json(text: str) -> str:
@@ -438,7 +448,8 @@ class Bots:
             except Exception as e:
                 err_str = str(e)
                 is_404 = "404" in err_str
-                is_transient = any(c in err_str for c in ("429", "402", "503", "529"))
+                # 401 included so a bad/missing key on one provider rotates to the next
+                is_transient = any(c in err_str for c in ("429", "402", "401", "503", "529"))
 
                 if (is_transient or is_404) and attempt < max_attempts - 1:
                     if is_404 or _retried:
