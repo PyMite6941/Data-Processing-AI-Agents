@@ -9,8 +9,26 @@ from pydantic import BaseModel
 import re as _re
 import json as _json
 import litellm
-litellm.cache = None        # Groq rejects litellm's cache_breakpoint injection
-litellm.drop_params = True  # Silently drop unsupported params per provider (seed, logprobs, etc.)
+litellm.cache = None        # Disable response caching
+litellm.drop_params = True  # Silently drop unsupported params per provider
+
+# Groq rejects messages that contain a 'cache_breakpoint' property.
+# CrewAI's prompt-caching feature injects it into system message dicts before
+# calling litellm.completion — setting litellm.cache=None doesn't prevent this.
+# Patch litellm.completion to strip the field from every message at call time.
+_real_completion = litellm.completion
+
+def _completion_no_cache_breakpoint(*args, **kwargs):
+    for msg in kwargs.get("messages", []):
+        if isinstance(msg, dict):
+            msg.pop("cache_breakpoint", None)
+            if isinstance(msg.get("content"), list):
+                for block in msg["content"]:
+                    if isinstance(block, dict):
+                        block.pop("cache_breakpoint", None)
+    return _real_completion(*args, **kwargs)
+
+litellm.completion = _completion_no_cache_breakpoint
 
 # ── Model rotation pools ──────────────────────────────────────────────────────
 # Tier 1 (Groq): 14,400 req/day free, fast, tried first.

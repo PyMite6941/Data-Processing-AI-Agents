@@ -157,6 +157,8 @@ async def analyze(context: str = Form(...), file: UploadFile = File(None)):
             "New version of crewai",
             "Run `pip install",
             "pip install --upgrade",
+            "All providers rate-limited",   # litellm internal retry message
+            "Auto-retrying in",             # litellm internal retry message
         )
 
         loop = asyncio.get_running_loop()
