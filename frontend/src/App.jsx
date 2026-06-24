@@ -2,19 +2,13 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
-	BarChart,
-	Bar,
-	LineChart,
-	Line,
-	PieChart,
-	Pie,
-	Cell,
-	XAxis,
-	YAxis,
-	CartesianGrid,
-	Tooltip,
-	Legend,
-	ResponsiveContainer,
+	BarChart, Bar,
+	LineChart, Line,
+	PieChart, Pie,
+	ScatterChart, Scatter, ZAxis,
+	FunnelChart, Funnel, LabelList,
+	RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+	Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import './App.css';
 
@@ -32,34 +26,12 @@ const HISTORY_KEY = 'dataflow_history';
 const MAX_HISTORY = 5;
 
 const PIPELINE_NODES = [
-	{
-		id: 'context',
-		label: 'Context',
-		match: 'analysis directive specialist',
-		icon: '◈',
-		color: '#6366f1',
-	},
-	{
-		id: 'prompt',
-		label: 'Prompt Eng',
-		match: 'data analysis prompt engineer',
-		icon: '✦',
-		color: '#8b5cf6',
-	},
-	{
-		id: 'analyst',
-		label: 'Analyst',
-		match: 'senior data analyst',
-		icon: '⬡',
-		color: '#34d399',
-	},
-	{
-		id: 'formatter',
-		label: 'Formatter',
-		match: 'structured output specialist',
-		icon: '◉',
-		color: '#f472b6',
-	},
+	{ id: 'context', label: 'Context', match: 'analysis directive specialist', icon: '◈', color: '#6366f1' },
+	{ id: 'cleaner', label: 'Cleaner', match: 'data quality inspector', icon: '✧', color: '#60a5fa' },
+	{ id: 'prompt', label: 'Prompt Eng', match: 'data analysis prompt engineer', icon: '✦', color: '#8b5cf6' },
+	{ id: 'analyst', label: 'Analyst', match: 'senior data analyst', icon: '⬡', color: '#34d399' },
+	{ id: 'formatter', label: 'Formatter', match: 'structured output specialist', icon: '◉', color: '#f472b6' },
+	{ id: 'qa', label: 'QA Critic', match: 'analysis quality critic', icon: '◎', color: '#fb923c' },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -135,10 +107,18 @@ function getLogClass(line) {
 	return '';
 }
 
+function encodeShare(str) {
+	try { return btoa(unescape(encodeURIComponent(str))); } catch { return ''; }
+}
+function decodeShare(str) {
+	try { return decodeURIComponent(escape(atob(str))); } catch { return null; }
+}
+
 function parseResult(content) {
 	try {
 		const parsed = JSON.parse(content.trim());
-		if (parsed.output_type === 'chart' || parsed.output_type === 'report')
+		const STRUCTURED_TYPES = ['chart', 'report', 'code', 'table', 'metrics'];
+		if (STRUCTURED_TYPES.includes(parsed.output_type))
 			return { type: 'structured', data: parsed };
 		return { type: 'json', data: parsed };
 	} catch {}
@@ -262,31 +242,37 @@ function DownloadPopup({ parsed, onClose }) {
 			`\n## Findings\n${d.findings.map((f) => `- ${f}`).join('\n')}`,
 			`\n## Recommendations\n${d.recommendations.map((r) => `- ${r}`).join('\n')}`,
 		].join('\n');
-		options.push({
-			icon: '{}',
-			label: 'Full JSON',
-			ext: 'json',
-			content: JSON.stringify(d, null, 2),
-		});
-		options.push({
-			icon: '📝',
-			label: 'Report (Markdown)',
-			ext: 'md',
-			content: reportMd,
-		});
+		options.push({ icon: '{}', label: 'Full JSON', ext: 'json', content: JSON.stringify(d, null, 2) });
+		options.push({ icon: '📝', label: 'Report (Markdown)', ext: 'md', content: reportMd });
 		if (d.data_points?.length) {
-			const csv = [
-				'label,value,category',
-				...d.data_points.map(
-					(p) => `${p.label},${p.value},${p.category ?? ''}`,
-				),
-			];
-			options.push({
-				icon: '⊞',
-				label: 'Chart Data (CSV)',
-				ext: 'csv',
-				content: csv.join('\n'),
+			const csv = ['label,value,category,x_value', ...d.data_points.map((p) => `${p.label},${p.value},${p.category ?? ''},${p.x_value ?? ''}`)];
+			options.push({ icon: '⊞', label: 'Chart Data (CSV)', ext: 'csv', content: csv.join('\n') });
+		}
+		if (d.code_blocks?.length) {
+			const ext = { python: 'py', sql: 'sql', bash: 'sh', r: 'r', javascript: 'js' };
+			d.code_blocks.forEach((b, i) => {
+				options.push({ icon: '{ }', label: `Code: ${b.title}`, ext: ext[b.language] ?? 'txt', content: b.code });
 			});
+		}
+		if (d.table_headers?.length) {
+			const csv = [d.table_headers.join(','), ...d.table_rows.map((r) => r.join(','))];
+			options.push({ icon: '⊞', label: 'Table (CSV)', ext: 'csv', content: csv.join('\n') });
+		}
+		if (d.metrics?.length) {
+			const csv = ['label,value,unit,trend,change,context', ...d.metrics.map((m) => `${m.label},${m.value},${m.unit ?? ''},${m.trend ?? ''},${m.change ?? ''},${m.context ?? ''}`)];
+			options.push({ icon: '◈', label: 'Metrics (CSV)', ext: 'csv', content: csv.join('\n') });
+		}
+		if (d.comparison_rows?.length) {
+			const csv = [`metric,${d.comparison_a_label || 'A'},${d.comparison_b_label || 'B'},winner`,
+				...d.comparison_rows.map((r) => `${r.metric},${r.value_a},${r.value_b},${r.winner ?? ''}`)];
+			options.push({ icon: '⇌', label: 'Comparison (CSV)', ext: 'csv', content: csv.join('\n') });
+		}
+		if (d.heatmap_values?.length) {
+			const header = ['', ...(d.heatmap_col_labels ?? [])].join(',');
+			const dataRows = (d.heatmap_row_labels ?? []).map((r, i) =>
+				[r, ...(d.heatmap_values[i] ?? [])].join(',')
+			);
+			options.push({ icon: '▦', label: 'Heatmap (CSV)', ext: 'csv', content: [header, ...dataRows].join('\n') });
 		}
 	} else if (parsed.type === 'json') {
 		options.push({
@@ -347,11 +333,13 @@ function DownloadPopup({ parsed, onClose }) {
 
 // ── Chart renderer ────────────────────────────────────────────────────────────
 
-function ChartView({ data }) {
+function ChartView({ data, overrideType }) {
 	const points = data.data_points ?? [];
+	const chartType = overrideType || data.chart_type;
 	const chartData = points.map((p) => ({
 		name: p.label,
 		value: p.value,
+		x: p.x_value ?? null,
 		category: p.category,
 	}));
 	const tooltipStyle = {
@@ -361,11 +349,9 @@ function ChartView({ data }) {
 		fontSize: 12,
 	};
 
-	if (data.chart_type === 'pie') {
+	if (chartType === 'pie') {
 		return (
-			<ResponsiveContainer
-				width='100%'
-				height={300}>
+			<ResponsiveContainer width='100%' height={300}>
 				<PieChart>
 					<Pie
 						data={chartData}
@@ -379,10 +365,7 @@ function ChartView({ data }) {
 						}
 						labelLine={false}>
 						{chartData.map((_, i) => (
-							<Cell
-								key={i}
-								fill={CHART_COLORS[i % CHART_COLORS.length]}
-							/>
+							<Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
 						))}
 					</Pie>
 					<Tooltip contentStyle={tooltipStyle} />
@@ -392,31 +375,61 @@ function ChartView({ data }) {
 		);
 	}
 
-	if (data.chart_type === 'line') {
+	if (chartType === 'scatter') {
+		const scatterData = chartData.map((p) => ({
+			x: p.x ?? 0,
+			y: p.value,
+			name: p.name,
+		}));
 		return (
-			<ResponsiveContainer
-				width='100%'
-				height={300}>
-				<LineChart
-					data={chartData}
-					margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-					<CartesianGrid
-						strokeDasharray='3 3'
-						stroke='#1e2030'
-					/>
+			<ResponsiveContainer width='100%' height={300}>
+				<ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 0 }}>
+					<CartesianGrid strokeDasharray='3 3' stroke='#1e2030' />
 					<XAxis
-						dataKey='name'
+						dataKey='x'
+						type='number'
+						name={data.x_axis_label || 'X'}
 						tick={{ fill: '#4a4f6a', fontSize: 11 }}
+						label={{ value: data.x_axis_label, position: 'insideBottom', offset: -10, fill: '#3d405a', fontSize: 11 }}
 					/>
 					<YAxis
+						dataKey='y'
+						type='number'
+						name={data.y_axis_label || 'Y'}
 						tick={{ fill: '#4a4f6a', fontSize: 11 }}
-						label={{
-							value: data.y_axis_label,
-							angle: -90,
-							position: 'insideLeft',
-							fill: '#3d405a',
-							fontSize: 11,
+						label={{ value: data.y_axis_label, angle: -90, position: 'insideLeft', fill: '#3d405a', fontSize: 11 }}
+					/>
+					<ZAxis range={[40, 40]} />
+					<Tooltip
+						contentStyle={tooltipStyle}
+						cursor={{ strokeDasharray: '3 3' }}
+						content={({ payload }) => {
+							if (!payload?.length) return null;
+							const d = payload[0].payload;
+							return (
+								<div style={tooltipStyle} className='scatter-tip'>
+									<p style={{ color: '#e2e8f0', margin: 0 }}>{d.name}</p>
+									<p style={{ color: '#6366f1', margin: 0 }}>{data.x_axis_label}: {d.x}</p>
+									<p style={{ color: '#34d399', margin: 0 }}>{data.y_axis_label}: {d.y}</p>
+								</div>
+							);
 						}}
+					/>
+					<Scatter data={scatterData} fill='#6366f1' fillOpacity={0.8} />
+				</ScatterChart>
+			</ResponsiveContainer>
+		);
+	}
+
+	if (chartType === 'line') {
+		return (
+			<ResponsiveContainer width='100%' height={300}>
+				<LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+					<CartesianGrid strokeDasharray='3 3' stroke='#1e2030' />
+					<XAxis dataKey='name' tick={{ fill: '#4a4f6a', fontSize: 11 }} />
+					<YAxis
+						tick={{ fill: '#4a4f6a', fontSize: 11 }}
+						label={{ value: data.y_axis_label, angle: -90, position: 'insideLeft', fill: '#3d405a', fontSize: 11 }}
 					/>
 					<Tooltip contentStyle={tooltipStyle} />
 					<Line
@@ -432,18 +445,64 @@ function ChartView({ data }) {
 		);
 	}
 
+	if (chartType === 'funnel') {
+		const funnelData = chartData.map((d, i) => ({
+			...d,
+			fill: CHART_COLORS[i % CHART_COLORS.length],
+		}));
+		return (
+			<ResponsiveContainer width='100%' height={300}>
+				<FunnelChart>
+					<Funnel dataKey='value' data={funnelData} isAnimationActive>
+						<LabelList position='center' fill='#fff' fontSize={11} dataKey='name' />
+					</Funnel>
+					<Tooltip contentStyle={tooltipStyle} />
+				</FunnelChart>
+			</ResponsiveContainer>
+		);
+	}
+
+	if (chartType === 'radar') {
+		const radarData = points.map((p) => ({
+			subject: p.label,
+			value: p.value,
+			value2: p.value2 ?? null,
+		}));
+		const hasB = radarData.some((d) => d.value2 != null);
+		return (
+			<ResponsiveContainer width='100%' height={300}>
+				<RadarChart cx='50%' cy='50%' outerRadius={100} data={radarData}>
+					<PolarGrid stroke='#1e2030' />
+					<PolarAngleAxis dataKey='subject' tick={{ fill: '#4a4f6a', fontSize: 11 }} />
+					<PolarRadiusAxis tick={{ fill: '#3d405a', fontSize: 9 }} />
+					<Radar
+						name={data.chart_title || 'Series A'}
+						dataKey='value'
+						stroke='#6366f1'
+						fill='#6366f1'
+						fillOpacity={0.35}
+					/>
+					{hasB && (
+						<Radar
+							name={data.radar_b_label || 'Series B'}
+							dataKey='value2'
+							stroke='#34d399'
+							fill='#34d399'
+							fillOpacity={0.2}
+						/>
+					)}
+					<Legend wrapperStyle={{ fontSize: 12, color: '#6b7280' }} />
+					<Tooltip contentStyle={tooltipStyle} />
+				</RadarChart>
+			</ResponsiveContainer>
+		);
+	}
+
+	// Default: bar
 	return (
-		<ResponsiveContainer
-			width='100%'
-			height={300}>
-			<BarChart
-				data={chartData}
-				margin={{ top: 5, right: 20, bottom: 30, left: 0 }}>
-				<CartesianGrid
-					strokeDasharray='3 3'
-					stroke='#1e2030'
-					vertical={false}
-				/>
+		<ResponsiveContainer width='100%' height={300}>
+			<BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 30, left: 0 }}>
+				<CartesianGrid strokeDasharray='3 3' stroke='#1e2030' vertical={false} />
 				<XAxis
 					dataKey='name'
 					tick={{ fill: '#4a4f6a', fontSize: 11 }}
@@ -453,26 +512,12 @@ function ChartView({ data }) {
 				/>
 				<YAxis
 					tick={{ fill: '#4a4f6a', fontSize: 11 }}
-					label={{
-						value: data.y_axis_label,
-						angle: -90,
-						position: 'insideLeft',
-						fill: '#3d405a',
-						fontSize: 11,
-					}}
+					label={{ value: data.y_axis_label, angle: -90, position: 'insideLeft', fill: '#3d405a', fontSize: 11 }}
 				/>
-				<Tooltip
-					contentStyle={tooltipStyle}
-					cursor={{ fill: 'rgba(99,102,241,0.06)' }}
-				/>
-				<Bar
-					dataKey='value'
-					radius={[4, 4, 0, 0]}>
+				<Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(99,102,241,0.06)' }} />
+				<Bar dataKey='value' radius={[4, 4, 0, 0]}>
 					{chartData.map((_, i) => (
-						<Cell
-							key={i}
-							fill={CHART_COLORS[i % CHART_COLORS.length]}
-						/>
+						<Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
 					))}
 				</Bar>
 			</BarChart>
@@ -480,22 +525,87 @@ function ChartView({ data }) {
 	);
 }
 
+// ── Data table for chart points ───────────────────────────────────────────────
+
+function DataPointTable({ data }) {
+	const points = data.data_points ?? [];
+	const hasCategory = points.some((p) => p.category);
+	const hasX = points.some((p) => p.x_value != null);
+	return (
+		<div className='result-table-wrap'>
+			<table className='result-table'>
+				<thead>
+					<tr>
+						<th>{data.x_axis_label || 'Label'}</th>
+						{hasX && <th>X Value</th>}
+						<th>{data.y_axis_label || 'Value'}</th>
+						{hasCategory && <th>Category</th>}
+					</tr>
+				</thead>
+				<tbody>
+					{points.map((p, i) => (
+						<tr key={i}>
+							<td>{p.label}</td>
+							{hasX && <td>{p.x_value?.toLocaleString() ?? '—'}</td>}
+							<td>{p.value.toLocaleString()}</td>
+							{hasCategory && <td>{p.category ?? '—'}</td>}
+						</tr>
+					))}
+				</tbody>
+			</table>
+		</div>
+	);
+}
+
 // ── Result views ──────────────────────────────────────────────────────────────
 
 function StructuredReport({ data }) {
-	const { displayed: sumDisplayed, done: sumDone } = useTypewriter(
-		data.summary,
-		10,
-	);
+	const { displayed: sumDisplayed, done: sumDone } = useTypewriter(data.summary, 10);
+	const hasChart = data.output_type === 'chart' && data.data_points?.length > 0;
+	const hasCode = data.output_type === 'code' && data.code_blocks?.length > 0;
+	const hasMetrics = data.output_type === 'metrics' && data.metrics?.length > 0;
+	const hasTable = data.output_type === 'table' && data.table_headers?.length > 0;
+	const hasComparison = data.output_type === 'comparison' && data.comparison_rows?.length > 0;
+	const hasHeatmap = data.output_type === 'heatmap' && data.heatmap_values?.length > 0;
 
 	return (
 		<div className='structured-report'>
+			{hasChart && (
+				<div className='report-chart-inline'>
+					{data.chart_title && <h3 className='chart-title chart-title--inline'>{data.chart_title}</h3>}
+					<ChartView data={data} />
+				</div>
+			)}
+			{hasMetrics && (
+				<div className='report-chart-inline'>
+					<MetricsView data={data} />
+				</div>
+			)}
+			{hasCode && (
+				<div className='report-chart-inline'>
+					<CodeView data={data} />
+				</div>
+			)}
+			{hasTable && (
+				<div className='report-chart-inline'>
+					<TableOutputView data={data} />
+				</div>
+			)}
+			{hasComparison && (
+				<div className='report-chart-inline'>
+					<ComparisonView data={data} />
+				</div>
+			)}
+			{hasHeatmap && (
+				<div className='report-chart-inline'>
+					<HeatmapView data={data} />
+				</div>
+			)}
 			<div className='report-summary'>
 				{sumDisplayed}
 				{!sumDone && <span className='typewriter-cursor' />}
 			</div>
-			<div
-				className={`report-sections${sumDone ? ' report-sections--visible' : ''}`}>
+			<div className={`report-sections${sumDone ? ' report-sections--visible' : ''}`}>
 				{data.findings?.length > 0 && (
 					<div className='report-section'>
 						<h3 className='report-section-title'>Findings</h3>
@@ -646,11 +756,337 @@ function HistoryDrawer({ history, onSelect, onClose }) {
 	);
 }
 
+// ── Code view ─────────────────────────────────────────────────────────────────
+
+const LANG_COLORS = {
+	python: '#3b82f6',
+	sql: '#f59e0b',
+	bash: '#34d399',
+	r: '#a78bfa',
+	javascript: '#fbbf24',
+};
+
+function CodeView({ data }) {
+	const blocks = data.code_blocks ?? [];
+	const [copied, setCopied] = useState(null);
+
+	function copyBlock(code, i) {
+		navigator.clipboard.writeText(code).then(() => {
+			setCopied(i);
+			setTimeout(() => setCopied(null), 1500);
+		});
+	}
+
+	return (
+		<div className='code-view'>
+			{blocks.map((block, i) => (
+				<div key={i} className='code-block'>
+					<div className='code-block-header'>
+						<span
+							className='code-lang-badge'
+							style={{ color: LANG_COLORS[block.language] ?? '#94a3b8', borderColor: (LANG_COLORS[block.language] ?? '#94a3b8') + '44', background: (LANG_COLORS[block.language] ?? '#94a3b8') + '11' }}>
+							{block.language}
+						</span>
+						<span className='code-block-title'>{block.title}</span>
+						<button className='code-copy-btn' onClick={() => copyBlock(block.code, i)}>
+							{copied === i ? '✓ copied' : 'copy'}
+						</button>
+					</div>
+					<pre className='code-pre'><code>{block.code}</code></pre>
+				</div>
+			))}
+		</div>
+	);
+}
+
+// ── Metrics view ──────────────────────────────────────────────────────────────
+
+const TREND_ICON = { up: '↑', down: '↓', neutral: '→' };
+const TREND_COLOR = { up: '#34d399', down: '#f87171', neutral: '#6b7280' };
+
+function MetricsView({ data }) {
+	const items = data.metrics ?? [];
+	return (
+		<div className='metrics-grid'>
+			{items.map((m, i) => {
+				const tc = TREND_COLOR[m.trend] ?? '#6b7280';
+				const ti = TREND_ICON[m.trend] ?? '';
+				return (
+					<div key={i} className='metric-card'>
+						<span className='metric-label'>{m.label}</span>
+						<div className='metric-value-row'>
+							<span className='metric-value'>{m.value}</span>
+							{m.unit && <span className='metric-unit'>{m.unit}</span>}
+						</div>
+						{(m.trend || m.change) && (
+							<div className='metric-trend' style={{ color: tc }}>
+								{ti && <span>{ti}</span>}
+								{m.change && <span>{m.change}</span>}
+								{m.context && <span className='metric-context'>{m.context}</span>}
+							</div>
+						)}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+// ── Table output view ─────────────────────────────────────────────────────────
+
+function TableOutputView({ data }) {
+	const headers = data.table_headers ?? [];
+	const rows = data.table_rows ?? [];
+	return (
+		<div className='result-table-wrap'>
+			<table className='result-table'>
+				<thead>
+					<tr>{headers.map((h, i) => <th key={i}>{h}</th>)}</tr>
+				</thead>
+				<tbody>
+					{rows.map((row, i) => (
+						<tr key={i}>
+							{row.map((cell, j) => <td key={j}>{cell}</td>)}
+						</tr>
+					))}
+				</tbody>
+			</table>
+		</div>
+	);
+}
+
+// ── Comparison view ───────────────────────────────────────────────────────────
+
+function ComparisonView({ data }) {
+	const rows = data.comparison_rows ?? [];
+	const aLabel = data.comparison_a_label || 'A';
+	const bLabel = data.comparison_b_label || 'B';
+	const aWins = rows.filter((r) => r.winner === 'a').length;
+	const bWins = rows.filter((r) => r.winner === 'b').length;
+	return (
+		<div className='comparison-view'>
+			<div className='comparison-header'>
+				<div className='comparison-cell comparison-cell--metric' />
+				<div className='comparison-cell comparison-cell--a'>{aLabel}</div>
+				<div className='comparison-cell comparison-cell--b'>{bLabel}</div>
+			</div>
+			{rows.map((row, i) => (
+				<div key={i} className='comparison-row'>
+					<div className='comparison-cell comparison-cell--metric'>{row.metric}</div>
+					<div className={`comparison-cell comparison-cell--a${row.winner === 'a' ? ' comparison-cell--winner' : ''}`}>
+						{row.winner === 'a' && <span className='winner-badge'>▲</span>}
+						{row.value_a}
+					</div>
+					<div className={`comparison-cell comparison-cell--b${row.winner === 'b' ? ' comparison-cell--winner' : ''}`}>
+						{row.winner === 'b' && <span className='winner-badge'>▲</span>}
+						{row.value_b}
+					</div>
+				</div>
+			))}
+			{rows.length > 0 && (
+				<div className='comparison-footer'>
+					<span style={{ color: '#6366f1' }}>{aLabel}: {aWins} wins</span>
+					<span style={{ color: '#34d399' }}>{bLabel}: {bWins} wins</span>
+					{rows.length - aWins - bWins > 0 && (
+						<span style={{ color: '#4a4f6a' }}>{rows.length - aWins - bWins} ties</span>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
+// ── Heatmap view ──────────────────────────────────────────────────────────────
+
+function HeatmapView({ data }) {
+	const rows = data.heatmap_row_labels ?? [];
+	const cols = data.heatmap_col_labels ?? [];
+	const values = data.heatmap_values ?? [];
+	const flat = values.flat().filter((v) => typeof v === 'number');
+	const min = flat.length ? Math.min(...flat) : 0;
+	const max = flat.length ? Math.max(...flat) : 1;
+
+	function colorFor(v) {
+		const t = max === min ? 0.5 : (v - min) / (max - min);
+		const r = Math.round(60 + t * 190);
+		const g = Math.round(70 - t * 30);
+		const b = Math.round(241 - t * 180);
+		return `rgba(${r},${g},${b},${0.3 + t * 0.6})`;
+	}
+
+	return (
+		<div className='heatmap-wrap'>
+			{data.heatmap_title && <h3 className='heatmap-title'>{data.heatmap_title}</h3>}
+			<div
+				className='heatmap-grid'
+				style={{ gridTemplateColumns: `auto repeat(${cols.length}, 1fr)` }}>
+				<div className='heatmap-cell heatmap-cell--corner' />
+				{cols.map((c, j) => (
+					<div key={j} className='heatmap-cell heatmap-cell--col-label'>{c}</div>
+				))}
+				{rows.map((r, i) => (
+					<>
+						<div key={`rl${i}`} className='heatmap-cell heatmap-cell--row-label'>{r}</div>
+						{cols.map((_, j) => {
+							const v = values[i]?.[j] ?? 0;
+							return (
+								<div
+									key={j}
+									className='heatmap-cell heatmap-cell--value'
+									title={`${r} × ${cols[j]}: ${v}`}
+									style={{ background: colorFor(v) }}>
+									{v.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+								</div>
+							);
+						})}
+					</>
+				))}
+			</div>
+		</div>
+	);
+}
+
+// ── Artifacts panel (full chart view + type switcher + data table) ────────────
+
+const CHART_TYPES = [
+	{ id: 'bar', label: '▬ Bar' },
+	{ id: 'line', label: '╱ Line' },
+	{ id: 'pie', label: '◔ Pie' },
+	{ id: 'scatter', label: '⁘ Scatter' },
+	{ id: 'funnel', label: '⯆ Funnel' },
+	{ id: 'radar', label: '⬡ Radar' },
+];
+
+function ArtifactsPanel({ parsed, onDownload }) {
+	const data = parsed.data;
+	const otype = data.output_type;
+
+	// chart-specific state
+	const [viewType, setViewType] = useState(data.chart_type || 'bar');
+	const [artifactTab, setArtifactTab] = useState(
+		otype === 'code' ? 'code'
+		: otype === 'metrics' ? 'metrics'
+		: otype === 'table' ? 'table'
+		: otype === 'comparison' ? 'comparison'
+		: otype === 'heatmap' ? 'heatmap'
+		: 'chart'
+	);
+	const hasScatterData = data.data_points?.some((p) => p.x_value != null);
+	const hasRadarB = data.data_points?.some((p) => p.value2 != null);
+	const availableTypes = CHART_TYPES.filter((t) => {
+		if (t.id === 'scatter') return hasScatterData;
+		if (t.id === 'radar') return (data.data_points?.length ?? 0) >= 3;
+		if (t.id === 'pie') return (data.data_points?.length ?? 0) <= 6;
+		if (t.id === 'funnel') return (data.data_points?.length ?? 0) >= 2;
+		return true;
+	});
+
+	const badgeLabel = {
+		chart: 'CHART', code: 'CODE', table: 'TABLE',
+		metrics: 'METRICS', comparison: 'COMPARE', heatmap: 'HEATMAP',
+	}[otype] ?? otype.toUpperCase();
+	const footerInfo = otype === 'chart' ? `${data.data_points?.length} data points · ${viewType} view`
+		: otype === 'code' ? `${data.code_blocks?.length} block(s)`
+		: otype === 'table' ? `${data.table_rows?.length} rows · ${data.table_headers?.length} cols`
+		: otype === 'metrics' ? `${data.metrics?.length} metrics`
+		: otype === 'comparison' ? `${data.comparison_rows?.length} metrics compared`
+		: otype === 'heatmap' ? `${data.heatmap_row_labels?.length} × ${data.heatmap_col_labels?.length} matrix`
+		: '';
+
+	return (
+		<div className='result-panel'>
+			<div className='result-type-bar'>
+				<span className='result-type-badge'>{badgeLabel}</span>
+				{otype === 'chart' && (
+					<div className='chart-type-switcher'>
+						{availableTypes.map((t) => (
+							<button
+								key={t.id}
+								className={`chart-type-btn${viewType === t.id ? ' chart-type-btn--active' : ''}`}
+								onClick={() => setViewType(t.id)}>
+								{t.label}
+							</button>
+						))}
+					</div>
+				)}
+			</div>
+
+			{otype === 'chart' && (
+				<div className='artifact-sub-tabs'>
+					{['chart', 'table', 'stats'].map((tab) => (
+						<button key={tab} className={`artifact-sub-tab${artifactTab === tab ? ' artifact-sub-tab--active' : ''}`} onClick={() => setArtifactTab(tab)}>
+							{tab.charAt(0).toUpperCase() + tab.slice(1)}
+						</button>
+					))}
+				</div>
+			)}
+
+			<div className='artifact-body'>
+				{otype === 'code' && <CodeView data={data} />}
+				{otype === 'metrics' && <MetricsView data={data} />}
+				{otype === 'table' && <TableOutputView data={data} />}
+				{otype === 'comparison' && <ComparisonView data={data} />}
+				{otype === 'heatmap' && <HeatmapView data={data} />}
+				{otype === 'chart' && (
+					<>
+						{artifactTab === 'chart' && (
+							<>
+								{data.chart_title && <h2 className='chart-title'>{data.chart_title}</h2>}
+								{data.x_axis_label && <p className='chart-axis-label'>X: {data.x_axis_label} · Y: {data.y_axis_label}</p>}
+								<ChartView data={data} overrideType={viewType} />
+							</>
+						)}
+						{artifactTab === 'table' && <DataPointTable data={data} />}
+						{artifactTab === 'stats' && (
+							<div className='artifact-stats'>
+								{data.data_points.map((p, i) => (
+									<div key={i} className='stat-chip'
+										style={{ borderColor: CHART_COLORS[i % CHART_COLORS.length] + '44', background: CHART_COLORS[i % CHART_COLORS.length] + '11' }}>
+										<span className='stat-label'>{p.label}</span>
+										<span className='stat-value' style={{ color: CHART_COLORS[i % CHART_COLORS.length] }}>{p.value.toLocaleString()}</span>
+										{p.category && <span className='stat-category'>{p.category}</span>}
+									</div>
+								))}
+							</div>
+						)}
+					</>
+				)}
+			</div>
+			<div className='log-footer'>
+				<span>{footerInfo}</span>
+				<button className='btn-download' onClick={onDownload}>⬇ Download</button>
+			</div>
+		</div>
+	);
+}
+
+// ── File preview panel ────────────────────────────────────────────────────────
+
+function FilePreviewPanel({ previews, files }) {
+	const [expanded, setExpanded] = useState(true);
+	const entries = files.filter((f) => previews[f.name]);
+	if (entries.length === 0) return null;
+	return (
+		<div className='file-preview-panel'>
+			<div className='file-preview-header' onClick={() => setExpanded((v) => !v)}>
+				<span>File Preview</span>
+				<span className='file-preview-toggle'>{expanded ? '▾' : '▸'}</span>
+			</div>
+			{expanded && entries.map((f, i) => (
+				<div key={i} className='file-preview-item'>
+					<div className='file-preview-name'>{f.name}</div>
+					<pre className='file-preview-content'>{previews[f.name]}</pre>
+				</div>
+			))}
+		</div>
+	);
+}
+
 // ── Main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
 	const [context, setContext] = useState('');
-	const [file, setFile] = useState(null);
+	const [files, setFiles] = useState([]);
 	const [logs, setLogs] = useState([]);
 	const [result, setResult] = useState(null);
 	const [status, setStatus] = useState('idle');
@@ -659,14 +1095,65 @@ export default function App() {
 	const [showDownload, setShowDownload] = useState(false);
 	const [showHistory, setShowHistory] = useState(false);
 	const [history, setHistory] = useState(() => loadHistory());
+	const [filePreviews, setFilePreviews] = useState({});
+	const [shareCopied, setShareCopied] = useState(false);
 	const logEndRef = useRef(null);
 	const fileInputRef = useRef(null);
 	const abortRef = useRef(null);
+	const analyzeRef = useRef(null);
 
 	useEffect(() => {
 		if (activeTab === 'logs')
 			logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 	}, [logs, activeTab]);
+
+	// Load shared result from URL hash on mount
+	useEffect(() => {
+		const hash = window.location.hash;
+		if (hash.startsWith('#r=')) {
+			const decoded = decodeShare(hash.slice(3));
+			if (decoded) {
+				setResult(decoded);
+				setStatus('done');
+				setActiveTab('result');
+			}
+		}
+	}, []);
+
+	// Read file previews when files change
+	useEffect(() => {
+		if (files.length === 0) { setFilePreviews({}); return; }
+		files.forEach((f) => {
+			if (filePreviews[f.name]) return;
+			if (f.type === 'application/pdf') {
+				setFilePreviews((p) => ({ ...p, [f.name]: '(PDF — preview not available)' }));
+				return;
+			}
+			f.text()
+				.then((text) => {
+					const lines = text.split('\n').slice(0, 8).join('\n');
+					const preview = lines.length > 500 ? lines.slice(0, 500) + '…' : lines;
+					setFilePreviews((p) => ({ ...p, [f.name]: preview }));
+				})
+				.catch(() => setFilePreviews((p) => ({ ...p, [f.name]: '(preview unavailable)' })));
+		});
+	}, [files]); // eslint-disable-line
+
+	// Keyboard shortcuts
+	useEffect(() => {
+		function onKeyDown(e) {
+			if (e.key === 'Escape') {
+				setShowDownload(false);
+				setShowHistory(false);
+			}
+			if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+				e.preventDefault();
+				analyzeRef.current?.();
+			}
+		}
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, []);
 
 	useEffect(() => {
 		if (result) setActiveTab('result');
@@ -680,7 +1167,7 @@ export default function App() {
 			id: Date.now(),
 			timestamp: new Date().toISOString(),
 			context,
-			fileName: file?.name ?? null,
+			fileName: files.length > 0 ? files.map((f) => f.name).join(', ') : null,
 			result,
 			logCount: logs.length,
 			resultType: p.type === 'structured' ? p.data.output_type : p.type,
@@ -695,6 +1182,9 @@ export default function App() {
 		parsed?.type === 'structured' &&
 		parsed.data?.output_type === 'chart' &&
 		parsed.data?.data_points?.length > 0;
+	const hasArtifacts =
+		parsed?.type === 'structured' &&
+		['chart', 'code', 'table', 'metrics', 'comparison', 'heatmap'].includes(parsed.data?.output_type);
 
 	async function handleAnalyze(isAutoRetry = false) {
 		if (!context.trim() || (status === 'running' && !isAutoRetry)) return;
@@ -717,7 +1207,7 @@ export default function App() {
 
 		const form = new FormData();
 		form.append('context', context);
-		if (file) form.append('file', file);
+		files.forEach((f) => form.append('files', f));
 		let gotResult = false;
 
 		try {
@@ -781,13 +1271,31 @@ export default function App() {
 		}
 	}
 
+	// Keep ref in sync so keyboard shortcut always calls latest version
+	analyzeRef.current = handleAnalyze;
+
+	function shareResult() {
+		if (!result) return;
+		const encoded = encodeShare(result);
+		const base = window.location.href.split('#')[0];
+		const url = base + '#r=' + encoded;
+		window.location.hash = 'r=' + encoded;
+		navigator.clipboard.writeText(url).then(() => {
+			setShareCopied(true);
+			setTimeout(() => setShareCopied(false), 2000);
+		});
+	}
+
 	function handleReset() {
 		setLogs([]);
 		setResult(null);
 		setStatus('idle');
 		setActiveTab('logs');
-		setFile(null);
+		setFiles([]);
+		setFilePreviews({});
 		setContext('');
+		if (fileInputRef.current) fileInputRef.current.value = '';
+		window.location.hash = '';
 	}
 
 	function handleHistorySelect(entry) {
@@ -796,7 +1304,7 @@ export default function App() {
 		setLogs([]);
 		setStatus('done');
 		setActiveTab('result');
-		setFile(null);
+		setFiles([]);
 		setShowHistory(false);
 	}
 
@@ -891,49 +1399,61 @@ export default function App() {
 					</div>
 
 					<div className='field'>
-						<label className='field-label'>Data file</label>
+						<label className='field-label'>Data files <span className='field-label-sub'>(up to 3)</span></label>
 						<div
-							className={`dropzone${file ? ' dropzone--has-file' : ''}`}
+							className={`dropzone${files.length > 0 ? ' dropzone--has-file' : ''}`}
 							onDrop={(e) => {
 								e.preventDefault();
-								setFile(e.dataTransfer.files[0] || null);
+								const dropped = Array.from(e.dataTransfer.files).slice(0, 3);
+								setFiles((prev) => [...prev, ...dropped].slice(0, 3));
 							}}
 							onDragOver={(e) => e.preventDefault()}
 							onClick={() => fileInputRef.current?.click()}
 							role='button'
 							tabIndex={0}
-							onKeyDown={(e) =>
-								e.key === 'Enter' && fileInputRef.current?.click()
-							}>
+							onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}>
 							<input
 								ref={fileInputRef}
 								type='file'
 								accept='.csv,.json,.txt,.pdf,.xml'
-								onChange={(e) => setFile(e.target.files[0] || null)}
+								multiple
+								onChange={(e) => {
+									const picked = Array.from(e.target.files).slice(0, 3);
+									setFiles((prev) => [...prev, ...picked].slice(0, 3));
+									e.target.value = '';
+								}}
 								style={{ display: 'none' }}
 							/>
-							{file ? (
-								<span className='dropzone-filename'>
-									<span className='dropzone-icon'>📄</span> {file.name}
-									<button
-										className='dropzone-clear'
-										onClick={(e) => {
-											e.stopPropagation();
-											setFile(null);
-										}}>
-										×
-									</button>
-								</span>
+							{files.length > 0 ? (
+								<div className='dropzone-filelist'>
+									{files.map((f, i) => (
+										<span key={i} className='dropzone-filename'>
+											<span className='dropzone-icon'>📄</span>
+											{f.name}
+											<button
+												className='dropzone-clear'
+												onClick={(ev) => {
+													ev.stopPropagation();
+													setFiles((prev) => prev.filter((_, j) => j !== i));
+												}}>
+												×
+											</button>
+										</span>
+									))}
+									{files.length < 3 && (
+										<span className='dropzone-add'>+ add more</span>
+									)}
+								</div>
 							) : (
 								<span className='dropzone-hint'>
-									Drop a file here or <u>click to upload</u>
-									<span className='dropzone-types'>
-										CSV · JSON · TXT · PDF · XML
-									</span>
+									Drop files here or <u>click to upload</u>
+									<span className='dropzone-types'>CSV · JSON · TXT · PDF · XML · up to 3 files</span>
 								</span>
 							)}
 						</div>
 					</div>
+
+					<FilePreviewPanel previews={filePreviews} files={files} />
 
 					<div className='action-row'>
 						<button
@@ -959,12 +1479,21 @@ export default function App() {
 							</button>
 						)}
 						{(status === 'done' || status === 'error') && (
-							<button
-								className='btn btn-ghost'
-								onClick={handleReset}>
-								Reset
-							</button>
+							<>
+								<button
+									className='btn btn-ghost'
+									onClick={() => handleAnalyze()}
+									title='Re-run with the same context and files'>
+									↺ Rerun
+								</button>
+								<button
+									className='btn btn-ghost'
+									onClick={handleReset}>
+									Reset
+								</button>
+							</>
 						)}
+						<span className='kbd-hint'>Ctrl+Enter</span>
 					</div>
 				</section>
 
@@ -998,12 +1527,18 @@ export default function App() {
 									<span className='tab-count tab-count--result'>✓</span>
 								)}
 							</button>
-							{hasChart && (
+							{hasArtifacts && (
 								<button
 									className={`tab-btn${activeTab === 'artifacts' ? ' tab-btn--active' : ''} tab-btn--chart`}
 									onClick={() => setActiveTab('artifacts')}>
 									Artifacts{' '}
-									<span className='tab-count tab-count--chart'>📊</span>
+									<span className='tab-count tab-count--chart'>
+										{parsed.data.output_type === 'code' ? '{ }' :
+										 parsed.data.output_type === 'metrics' ? '◈' :
+										 parsed.data.output_type === 'table' ? '⊞' :
+										 parsed.data.output_type === 'comparison' ? '⇌' :
+										 parsed.data.output_type === 'heatmap' ? '▦' : '📊'}
+									</span>
 								</button>
 							)}
 						</div>
@@ -1105,72 +1640,49 @@ export default function App() {
 												{parsed.data.chart_type} chart
 											</span>
 										)}
+										{parsed.type === 'structured' && parsed.data.quality_score != null && (
+											<span
+												className='quality-badge'
+												style={{
+													color: parsed.data.quality_score >= 8 ? '#34d399'
+														: parsed.data.quality_score >= 5 ? '#fbbf24'
+														: '#f87171',
+												}}>
+												Quality {parsed.data.quality_score}/10
+											</span>
+										)}
+										{parsed.type === 'structured' && parsed.data.quality_verdict && (
+											<span className='quality-verdict'>{parsed.data.quality_verdict}</span>
+										)}
 									</div>
 									<div className='result-body'>
 										<ResultView parsed={parsed} />
 									</div>
 									<div className='log-footer'>
 										<span>{result.length} chars</span>
-										<button
-											className='btn-download'
-											onClick={() => setShowDownload(true)}>
-											⬇ Download
-										</button>
+										<div style={{ display: 'flex', gap: '6px' }}>
+											<button
+												className='btn-share'
+												onClick={shareResult}>
+												{shareCopied ? '✓ Copied!' : '⎋ Share'}
+											</button>
+											<button
+												className='btn-download'
+												onClick={() => setShowDownload(true)}>
+												⬇ Download
+											</button>
+										</div>
 									</div>
 								</>
 							)}
 						</div>
 					)}
 
-					{activeTab === 'artifacts' && hasChart && (
-						<div className='result-panel'>
-							<div className='result-type-bar'>
-								<span className='result-type-badge'>CHART</span>
-								<span className='result-chart-badge'>
-									{parsed.data.chart_type}
-								</span>
-							</div>
-							<div className='artifact-body'>
-								<h2 className='chart-title'>{parsed.data.chart_title}</h2>
-								{parsed.data.x_axis_label && (
-									<p className='chart-axis-label'>
-										X: {parsed.data.x_axis_label} · Y:{' '}
-										{parsed.data.y_axis_label}
-									</p>
-								)}
-								<ChartView data={parsed.data} />
-								<div className='artifact-stats'>
-									{parsed.data.data_points.map((p, i) => (
-										<div
-											key={i}
-											className='stat-chip'
-											style={{
-												borderColor:
-													CHART_COLORS[i % CHART_COLORS.length] + '44',
-												background:
-													CHART_COLORS[i % CHART_COLORS.length] + '11',
-											}}>
-											<span className='stat-label'>{p.label}</span>
-											<span
-												className='stat-value'
-												style={{
-													color: CHART_COLORS[i % CHART_COLORS.length],
-												}}>
-												{p.value.toLocaleString()}
-											</span>
-										</div>
-									))}
-								</div>
-							</div>
-							<div className='log-footer'>
-								<span>{parsed.data.data_points.length} data points</span>
-								<button
-									className='btn-download'
-									onClick={() => setShowDownload(true)}>
-									⬇ Download
-								</button>
-							</div>
-						</div>
+					{activeTab === 'artifacts' && hasArtifacts && (
+						<ArtifactsPanel
+							parsed={parsed}
+							onDownload={() => setShowDownload(true)}
+						/>
 					)}
 				</section>
 			</main>
