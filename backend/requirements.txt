@@ -9,3 +9,4 @@ crewai==1.14.5
 crewai-tools==1.14.5
 pandas==3.0.3
 fastembed==0.8.0
+litellm>=1.61.0
