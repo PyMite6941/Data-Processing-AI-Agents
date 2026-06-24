@@ -1,6 +1,4 @@
-<<<<<<< HEAD
-=======
-"""
+﻿"""
 DataFlow AI — single-file backend.
 FastAPI SSE server + CrewAI 6-agent pipeline.
 """
@@ -23,16 +21,11 @@ from threading import Lock
 from typing import Optional, Literal, List as _List
 
 # ── Third-party ───────────────────────────────────────────────────────────────
->>>>>>> 384b2c8 (feat: add GitHub Models support, remove Groq dependency, add backend .gitignore)
 from dotenv import load_dotenv
 load_dotenv()
 
-import os
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-<<<<<<< HEAD
-from routes import watch, analysis, user, charts, gps, integrations
-=======
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -44,7 +37,6 @@ litellm.cache = None
 litellm.drop_params = True
 
 # ── Groq cache_breakpoint patch ───────────────────────────────────────────────
-# Groq rejects messages that contain a 'cache_breakpoint' property.
 _real_completion = litellm.completion
 
 def _completion_no_cache_breakpoint(*args, **kwargs):
@@ -198,91 +190,51 @@ class DataPoint(BaseModel):
     label: str
     value: float
     category: Optional[str] = None
-    x_value: Optional[float] = None   # scatter: second axis
-    value2: Optional[float] = None    # radar: second series value
+    x_value: Optional[float] = None
+    value2: Optional[float] = None
 
 
 class CodeBlock(BaseModel):
-    language: str    # python | sql | bash | r | javascript
+    language: str
     title: str
-    code: str        # keep under 400 chars
+    code: str
 
 
 class MetricItem(BaseModel):
     label: str
-    value: str       # formatted string, e.g. "1,234" or "98.5%"
+    value: str
     unit: Optional[str] = None
-    trend: Optional[str] = None    # up | down | neutral
-    change: Optional[str] = None   # e.g. "+12%"
-    context: Optional[str] = None  # e.g. "vs last week"
+    trend: Optional[str] = None
+    change: Optional[str] = None
+    context: Optional[str] = None
 
 
 class ComparisonRow(BaseModel):
-    metric: str          # e.g. "Avg Revenue"
-    value_a: str         # formatted value for entity A
-    value_b: str         # formatted value for entity B
+    metric: str
+    value_a: str
+    value_b: str
     winner: Optional[Literal["a", "b", "tie"]] = None
 
 
 class FormattedOutput(BaseModel):
-    """
-    OUTPUT TYPE DECISION RULES — pick the FIRST that matches:
-    1. "code"       → answer is or includes runnable code/queries/scripts.
-                      Populate code_blocks (1-3 blocks).
-    2. "metrics"    → answer is a set of KPIs or key numbers (3-8 items).
-                      Populate metrics list.
-    3. "comparison" → comparing two named entities side-by-side across metrics.
-                      Populate comparison_a_label, comparison_b_label, comparison_rows.
-    4. "heatmap"    → data is a matrix (rows × columns) of numeric values — e.g.
-                      a correlation matrix, time-of-day × day-of-week activity grid,
-                      or category × category frequency table.
-                      Populate heatmap_row_labels, heatmap_col_labels, heatmap_values.
-                      Max 10 rows × 10 cols.
-    5. "table"      → ranked/multi-attribute list best shown as labelled rows+columns.
-                      Populate table_headers and table_rows (max 20 rows).
-    6. "chart"      → 2+ numeric values that can be compared visually.
-                      Choose chart_type:
-                        bar     → named categories
-                        line    → sequential time periods
-                        pie     → parts of a whole, 2-6 slices
-                        scatter → correlation (set x_value + value per DataPoint)
-                        funnel  → sequential stages with drop-off (conversion pipelines)
-                        radar   → multi-attribute profile comparison across dimensions;
-                                  set value for series A; set value2 + radar_b_label
-                                  if comparing two entities on the same axes.
-    7. "report"     → qualitative or narrative findings.
-
-    ALWAYS REQUIRED:
-    - summary: 2-3 sentences directly answering the original question.
-    - findings: 3-5 specific factual strings from the data.
-    - recommendations: 2-3 actionable strings.
-    - Set unused fields to null.
-    """
     output_type: Literal["chart", "report", "code", "table", "metrics", "comparison", "heatmap"]
-    # chart
     chart_type: Optional[Literal["bar", "line", "pie", "scatter", "funnel", "radar"]] = None
     chart_title: Optional[str] = None
     x_axis_label: Optional[str] = None
     y_axis_label: Optional[str] = None
     data_points: Optional[list[DataPoint]] = None
-    radar_b_label: Optional[str] = None   # label for value2 series in radar
-    # code
+    radar_b_label: Optional[str] = None
     code_blocks: Optional[list[CodeBlock]] = None
-    # table
     table_headers: Optional[list[str]] = None
     table_rows: Optional[list[list[str]]] = None
-    # metrics
     metrics: Optional[list[MetricItem]] = None
-    # comparison
     comparison_a_label: Optional[str] = None
     comparison_b_label: Optional[str] = None
     comparison_rows: Optional[list[ComparisonRow]] = None
-    # heatmap
     heatmap_title: Optional[str] = None
     heatmap_row_labels: Optional[list[str]] = None
     heatmap_col_labels: Optional[list[str]] = None
-    heatmap_values: Optional[list[list[float]]] = None  # [row_idx][col_idx]
-    # always
+    heatmap_values: Optional[list[list[float]]] = None
     summary: str
     findings: list[str]
     recommendations: list[str]
@@ -653,9 +605,8 @@ class Bots:
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
->>>>>>> 384b2c8 (feat: add GitHub Models support, remove Groq dependency, add backend .gitignore)
 
-app = FastAPI(title="Fitness AI Agents")
+app = FastAPI(title="DataFlow AI")
 
 _ALLOWED_ORIGINS = [o.strip() for o in os.getenv(
     "ALLOWED_ORIGINS",
@@ -670,14 +621,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-<<<<<<< HEAD
-app.include_router(watch.router,    prefix="/watch",    tags=["Watch"])
-app.include_router(analysis.router, prefix="/analyze",  tags=["Analysis"])
-app.include_router(user.router,     prefix="/user",     tags=["User"])
-app.include_router(charts.router,   prefix="/charts",   tags=["Charts"])
-app.include_router(gps.router,          prefix="/routes",       tags=["GPS"])
-app.include_router(integrations.router, prefix="/integrations", tags=["Integrations"])
-=======
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 BOX_CHARS = re.compile(r"[╭╮╰╯│╞╡╢╟╔╗╚╝╬═─┼┤├┬┴┌└┐┘╠╣╦╧╨╩╪╫]")
 
@@ -709,13 +652,10 @@ class LineCapture(io.TextIOBase):
             self._q.put(self._buf.strip())
             self._buf = ""
 
->>>>>>> 384b2c8 (feat: add GitHub Models support, remove Groq dependency, add backend .gitignore)
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-<<<<<<< HEAD
-=======
 
 
 @app.post("/analyze")
@@ -850,4 +790,3 @@ async def analyze(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
->>>>>>> 384b2c8 (feat: add GitHub Models support, remove Groq dependency, add backend .gitignore)
