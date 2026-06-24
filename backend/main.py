@@ -93,11 +93,19 @@ _cooldown: dict[str, float] = {}
 _cooldown_lock = Lock()
 _crew_lock = Lock()
 
+_OPENROUTER_MODELS_ALL: frozenset = frozenset(
+    m for m in _FAST_MODELS + _SMART_MODELS if m.startswith("openrouter/")
+)
+
 
 def _set_cooldown(model: str, seconds: float) -> None:
     until = _time.monotonic() + seconds
     with _cooldown_lock:
-        _cooldown[model] = max(_cooldown.get(model, 0.0), until)
+        if model.startswith("openrouter/"):
+            for m in _OPENROUTER_MODELS_ALL:
+                _cooldown[m] = max(_cooldown.get(m, 0.0), until)
+        else:
+            _cooldown[model] = max(_cooldown.get(model, 0.0), until)
 
 
 def _pick_model(pool: list[str]) -> tuple[str, int]:
@@ -742,10 +750,14 @@ async def analyze(
             "ERROR:root:",
             "ERROR:crewai.",
             "[CrewAIEventsBus]",
-            "An unknown error occurred. Please check",
-            "Error details: Error code:",
-            "Error details: Model ",
+            "Warning: Event pairing",
+            "An unknown error occurred",
+            "Error details:",
             "'agent_execution_started'",
+            "'llm_call_failed'",
+            "agent_execution_error",
+            "task_failed",
+            "crew_kickoff_failed",
             "Tracing Preference Saved",
             "Tracing has been disabled",
             "Your preference has been saved",
@@ -763,6 +775,10 @@ async def analyze(
             "All providers rate-limited",
             "Auto-retrying in",
             "[RETRY]",
+            "Retrying request",
+            "Successfully validated tool",
+            "API call failed",
+            "openai._base_client",
         )
 
         loop = asyncio.get_running_loop()
