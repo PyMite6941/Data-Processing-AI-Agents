@@ -17,8 +17,11 @@ import time as _time
 import asyncio
 import json
 import json as _json
+import warnings
 from threading import Lock
 from typing import Optional, Literal, List as _List
+
+warnings.filterwarnings("ignore", message="method callbacks cannot be serialized")
 
 # ── Third-party ───────────────────────────────────────────────────────────────
 from dotenv import load_dotenv
@@ -35,6 +38,12 @@ from crewai_tools import FileReadTool
 import litellm
 litellm.cache = None
 litellm.drop_params = True
+litellm.suppress_debug_info = True
+litellm.set_verbose = False
+
+import logging
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+logging.getLogger("LiteLLM Router").setLevel(logging.WARNING)
 
 # ── Groq cache_breakpoint patch ───────────────────────────────────────────────
 _real_completion = litellm.completion
