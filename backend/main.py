@@ -68,25 +68,45 @@ litellm.completion = _completion_no_cache_breakpoint
 # OpenRouter free models share ONE daily quota per key (see batched cooldown in
 # _set_cooldown), so the GitHub entry is the real fallback once that quota is
 # spent. It is listed first because it has a separate, independent quota.
+# OpenRouter retires :free slugs often (a dead slug 404s -> "unavailable for
+# free"). These were verified against GET /api/v1/models — re-check there if 404s
+# reappear. github/gpt-4o-mini needs a valid GITHUB_TOKEN (with Models: read) set
+# in the host env; OpenRouter is the primary path so the app still works without it.
 _FAST_MODELS = [
     "github/gpt-4o-mini",
-    "openrouter/meta-llama/llama-3.1-8b-instruct:free",
-    "openrouter/mistralai/mistral-7b-instruct:free",
-    "openrouter/google/gemma-3-12b-it:free",
-    "openrouter/qwen/qwen3-8b:free",
-    "openrouter/meta-llama/llama-4-scout:free",
+    "openrouter/meta-llama/llama-3.2-3b-instruct:free",
+    "openrouter/openai/gpt-oss-20b:free",
+    "openrouter/google/gemma-4-31b-it:free",
     "openrouter/nvidia/nemotron-nano-9b-v2:free",
+    "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
 ]
 _SMART_MODELS = [
     "github/gpt-4o-mini",
     "github/gpt-4o",
     "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-    "openrouter/deepseek/deepseek-chat-v3-0324:free",
-    "openrouter/google/gemma-3-27b-it:free",
+    "openrouter/openai/gpt-oss-120b:free",
+    "openrouter/nousresearch/hermes-3-llama-3.1-405b:free",
     "openrouter/qwen/qwen3-coder:free",
-    "openrouter/meta-llama/llama-4-maverick:free",
-    "openrouter/mistralai/mistral-small-3.1-24b-instruct:free",
 ]
+
+
+def _prune_unkeyed(pool: list[str]) -> None:
+    """Drop models whose provider key is absent so rotation never wastes a
+    cooldown on a provider that can't authenticate (e.g. GITHUB_TOKEN unset on
+    the host). If pruning would empty the pool, leave it untouched."""
+    has_or = bool(os.getenv("OPENROUTER_API_KEY"))
+    has_gh = bool(os.getenv("GITHUB_TOKEN"))
+    kept = [
+        m for m in pool
+        if (m.startswith("openrouter/") and has_or)
+        or (m.startswith("github/") and has_gh)
+    ]
+    if kept:
+        pool[:] = kept
+
+
+_prune_unkeyed(_FAST_MODELS)
+_prune_unkeyed(_SMART_MODELS)
 
 # ── Cooldown state ────────────────────────────────────────────────────────────
 _cooldown: dict[str, float] = {}
