@@ -62,30 +62,30 @@ def _completion_no_cache_breakpoint(*args, **kwargs):
 litellm.completion = _completion_no_cache_breakpoint
 
 # ── Model rotation pools ──────────────────────────────────────────────────────
+# NOTE on GitHub Models: this account only has gpt-4o-mini / gpt-4o enabled.
+# Other catalogue IDs (Phi, Llama, Mistral, Gemma) 400-fail here, so they are
+# NOT listed — including them just burns rotation attempts on dead models.
+# OpenRouter free models share ONE daily quota per key (see batched cooldown in
+# _set_cooldown), so the GitHub entry is the real fallback once that quota is
+# spent. It is listed first because it has a separate, independent quota.
 _FAST_MODELS = [
-    "github/Phi-3.5-mini-instruct",
-    "github/AI-Model-Gemma-2-2B-it",
-    "github/Llama-3.1-8B-Instruct",
-    "openrouter/nvidia/nemotron-nano-9b-v2:free",
-    "openrouter/minimax/minimax-m2.5:free",
+    "github/gpt-4o-mini",
     "openrouter/meta-llama/llama-3.1-8b-instruct:free",
     "openrouter/mistralai/mistral-7b-instruct:free",
     "openrouter/google/gemma-3-12b-it:free",
     "openrouter/qwen/qwen3-8b:free",
     "openrouter/meta-llama/llama-4-scout:free",
-    "openrouter/microsoft/phi-3-mini-128k-instruct:free",
+    "openrouter/nvidia/nemotron-nano-9b-v2:free",
 ]
 _SMART_MODELS = [
-    "github/Llama-3.1-70B-Instruct",
-    "github/Mistral-large-2407",
     "github/gpt-4o-mini",
-    "openrouter/google/gemma-3-27b-it:free",
-    "openrouter/qwen/qwen3-coder:free",
+    "github/gpt-4o",
     "openrouter/meta-llama/llama-3.3-70b-instruct:free",
     "openrouter/deepseek/deepseek-chat-v3-0324:free",
+    "openrouter/google/gemma-3-27b-it:free",
+    "openrouter/qwen/qwen3-coder:free",
     "openrouter/meta-llama/llama-4-maverick:free",
     "openrouter/mistralai/mistral-small-3.1-24b-instruct:free",
-    "openrouter/google/gemma-3-12b-it:free",
 ]
 
 # ── Cooldown state ────────────────────────────────────────────────────────────
@@ -625,14 +625,24 @@ class Bots:
 
 app = FastAPI(title="DataFlow AI")
 
+# Defaults cover local dev + the live Vercel frontend. Override with the
+# ALLOWED_ORIGINS env var (comma-separated) to add or replace origins.
+_DEFAULT_ORIGINS = (
+    "http://localhost:5173,"
+    "http://localhost:4173,"
+    "http://localhost:8000,"
+    "https://data-processing-ai-agents.vercel.app"
+)
 _ALLOWED_ORIGINS = [o.strip() for o in os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:5173,http://localhost:4173",
+    _DEFAULT_ORIGINS,
 ).split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
+    # Allow Vercel preview deployments (e.g. data-processing-ai-agents-<hash>.vercel.app)
+    allow_origin_regex=r"https://data-processing-ai-agents[\w-]*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -641,11 +651,39 @@ app.add_middleware(
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 BOX_CHARS = re.compile(r"[╭╮╰╯│╞╡╢╟╔╗╚╝╬═─┼┤├┬┴┌└┐┘╠╣╦╧╨╩╪╫]")
 
-MAX_FILE_SIZE = 10 * 1024 * 1024
+MAX_FILE_SIZE = 10 * 1024 * 1024          # per-file upload ceiling
+MAX_TOTAL_SIZE = 15 * 1024 * 1024         # combined ceiling across all files
 MAX_CONTEXT_LEN = 2000
 MAX_RUNTIME = 600
 MAX_FILES = 3
 ALLOWED_EXTS = {".csv", ".json", ".txt", ".pdf", ".xml"}
+
+# The free-tier models have small context windows (~8K–32K tokens). A large file
+# dumped verbatim into the prompt returns a 400/BadRequest, which the rotation
+# loop misreads as a dead model and cools the whole pool. Cap what the analyst
+# actually ingests per file (~roughly 40K tokens of text) and flag truncation so
+# the model knows the data is partial. PDFs/binaries are left untouched —
+# FileReadTool extracts their text downstream.
+MAX_INGEST_CHARS = 160_000
+
+
+def _truncate_for_model(content: bytes, ext: str) -> bytes:
+    """Trim oversized text files to a model-safe budget on a line boundary."""
+    if ext in (".pdf",) or len(content) <= MAX_INGEST_CHARS:
+        return content
+    try:
+        text = content.decode("utf-8", errors="replace")
+    except Exception:
+        return content[:MAX_INGEST_CHARS]
+    clipped = text[:MAX_INGEST_CHARS]
+    nl = clipped.rfind("\n")
+    if nl > MAX_INGEST_CHARS // 2:
+        clipped = clipped[:nl]
+    note = (
+        f"\n\n[NOTE: file truncated to the first {len(clipped):,} characters "
+        f"of {len(text):,} for analysis. Findings reflect this sample.]\n"
+    )
+    return (clipped + note).encode("utf-8")
 
 
 class LineCapture(io.TextIOBase):
@@ -694,6 +732,7 @@ async def analyze(
         return JSONResponse({"error": f"Too many files (max {MAX_FILES})."}, status_code=400)
 
     validated_files = []
+    total_size = 0
     for f in uploads:
         ext = os.path.splitext(f.filename)[1].lower()
         if ext not in ALLOWED_EXTS:
@@ -707,7 +746,14 @@ async def analyze(
                 {"error": f"File '{f.filename}' too large ({len(content) // 1024}KB, max {MAX_FILE_SIZE // 1024 // 1024}MB)."},
                 status_code=400,
             )
-        validated_files.append((content, ext))
+        total_size += len(content)
+        if total_size > MAX_TOTAL_SIZE:
+            return JSONResponse(
+                {"error": f"Combined upload too large (max {MAX_TOTAL_SIZE // 1024 // 1024}MB across all files)."},
+                status_code=400,
+            )
+        # Trim oversized text so it fits the free-tier model context window.
+        validated_files.append((_truncate_for_model(content, ext), ext))
 
     async def event_stream():
         q: queue.Queue = queue.Queue()

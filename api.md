@@ -1,6 +1,9 @@
 # DataFlow API Reference
 
-**Base URL:** `https://pymite6941-data-analyst-ai-agent.hf.space`
+**Base URL:** `https://data-processing-ai-agents.onrender.com`
+
+> The backend runs on Render's free tier, which spins down after inactivity — the
+> first request after idle may take ~30–60s to cold-start before responding.
 
 **Health check:** `GET /health` → `{ "status": "ok" }`
 
@@ -29,7 +32,11 @@ Runs the 6-agent analysis pipeline and streams results back as Server-Sent Event
 | Field | Type | Required | Constraints | Description |
 |---|---|---|---|---|
 | `context` | string | Yes | Max 2000 chars | Natural-language question or description of what to analyze |
-| `files` | File (binary) | No | Up to 3 files, max 10 MB each | Data files to analyze together |
+| `files` | File (binary) | No | Up to 3 files, max 10 MB each, 15 MB combined | Data files to analyze together |
+
+> Large text files are trimmed to a model-safe budget (~160 K characters) before
+> analysis so they fit the free-tier model context window; the analysis notes when
+> a file was truncated.
 
 **Accepted file types:** `.csv` `.json` `.txt` `.pdf` `.xml`
 
@@ -41,6 +48,7 @@ Runs the 6-agent analysis pipeline and streams results back as Server-Sent Event
 { "error": "Too many files (max 3)." }
 { "error": "File 'data.exe': type '.exe' not supported. Allowed: .csv, .json, .pdf, .txt, .xml" }
 { "error": "File 'huge.csv' too large (15360KB, max 10MB)." }
+{ "error": "Combined upload too large (max 15MB across all files)." }
 ```
 
 ### JavaScript
@@ -554,4 +562,4 @@ The `/analyze` endpoint runs a sequential 6-agent CrewAI pipeline:
 5. **Output Formatter** — serialises findings into one of the 7 output types above
 6. **QA Critic** — rates the completed analysis 1–10 and writes a verdict
 
-On upstream 429/402/503/529 errors, the pipeline automatically rotates across a pool of Groq and OpenRouter free-tier models and retries. Hard timeout: 10 minutes.
+On upstream 429/402/404/503/529 errors, the pipeline automatically rotates across a pool of **GitHub Models** (`gpt-4o-mini`, `gpt-4o`) and **OpenRouter** free-tier models and retries. OpenRouter's free models share one daily quota per key, so when any of them returns the daily 429 the whole OpenRouter pool is cooled together and rotation falls back to GitHub Models (which has an independent quota). Hard timeout: 10 minutes.
